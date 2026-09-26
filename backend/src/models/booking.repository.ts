@@ -29,6 +29,19 @@ export class BookingRepository {
   async findByIdempotencyKey(key: string): Promise<IBooking | null> {
     return Booking.findOne({ idempotencyKey: key }).exec();
   }
+
+  async findById(bookingId: string): Promise<IBooking | null> {
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return null;
+    }
+    return Booking.findById(bookingId).exec();
+  }
+
+  async findByMentorId(mentorId: string): Promise<IBooking[]> {
+    return Booking.find({
+      mentorId: new mongoose.Types.ObjectId(mentorId),
+    }).sort({ startTime: -1 }).exec();
+  }
 }
 
 export const bookingRepository = new BookingRepository();
