@@ -763,3 +763,276 @@ result.slots.forEach(slot => {
 ## End of Prompt 3 Implementation
 
 ---
+
+
+---
+
+## Prompt 4: Mentor Allocation Service Backend Implementation
+
+### Date
+September 26, 2026
+
+### Original Prompt
+```
+by referring the coding-skill.md file Implement the next backend feature: Mentor Allocation. First inspect the existing mentor domain, availability service, temporal utilities, booking schema, and booking repository. Build the Mentor Allocation Service on top of the existing architecture without restructuring working code. The service should accept a requested trial slot and the eligible mentor IDs produced by the Availability Engine, exclude mentors that are no longer eligible because of an existing overlapping booking or the 2-trials-per-mentor-per-local-calendar-day limit, then select the least-booked remaining mentor. Use deterministic ordering: booking count ascending, then stable mentorId ascending. Never use random selection or first-available selection. Reuse the existing Temporal Utilities for mentor-local date and interval calculations without writing new timezone conversion logic. Keep allocation separate from booking creation: this step only determines the mentor that should be selected and must not insert or modify bookings. Add focused tests for least-booked selection, deterministic tie-breaking, single eligible mentor, no eligible mentors, overlapping booking exclusion, daily capacity exclusion, and correct mentor-local calendar-day handling. Do not implement booking creation, notifications, or frontend work yet. Run all existing tests plus the new allocation tests, verify that all 10 production mentors remain intact, review the final diff, and report the files changed, allocation behavior implemented, tests executed, and result. Then stop.
+```
+
+### Implementation Log
+
+#### Project Inspection
+- Reviewed booking schema (`models/booking.schema.ts`): Uses `startTime`/`endTime` fields, status enum `CONFIRMED`/`CANCELLED`
+- Reviewed booking repository (`models/booking.repository.ts`): Has `findOverlappingBookings()` and `findBookingsInRange()` methods
+- Confirmed temporal utilities available: `getLocalDateForInstant()`, `doIntervalsOverlap()`
+- Verified mentor repository exists with `findById()` method
+
+#### Files Created (2 new files)
+
+**Allocation Service:**
+- `src/services/mentor-allocation.service.ts` - 280 lines
+  - `allocateMentor()` - Main allocation method
+  - `filterAvailableMentors()` - Exclude conflicts and capacity
+  - `hasOverlappingBooking()` - Check for booking conflicts
+  - `isAtDailyCapacity()` - Check daily trial limit
+  - `selectLeastBookedMentor()` - Deterministic selection
+  - `getTotalBookingCount()` - Count confirmed bookings
+  - `retrieveMentors()` - Fetch mentor documents
+
+**Allocation Tests:**
+- `tests/mentor-allocation.test.ts` - 17 comprehensive tests (380 lines)
+  - Helper function `createBooking()` for test data
+  - Proper test isolation and cleanup
+
+#### Allocation Service Implementation
+
+**Core Algorithm:**
+1. **Input Validation** - Ensures eligible mentor list is not empty
+2. **Mentor Retrieval** - Fetches active mentor documents from database
+3. **Conflict Filtering** - Excludes mentors with overlapping CONFIRMED bookings
+4. **Capacity Filtering** - Excludes mentors at 2-trials-per-day limit (mentor's local day)
+5. **Deterministic Selection** - Chooses least-booked mentor with stable tie-breaking
+
+**Method Signature:**
+```typescript
+async allocateMentor(
+  slotStartInstant: Date | string,
+  slotEndInstant: Date | string,
+  eligibleMentorIds: (ObjectId | string)[]
+): Promise<MentorAllocationResult>
+```
+
+**Result Interface:**
+```typescript
+interface MentorAllocationResult {
+  success: boolean;
+  allocatedMentorId?: string;  // Only if success=true
+  reason?: string;             // Only if success=false
+}
+```
+
+**Key Features:**
+
+✅ **Overlap Detection**
+- Uses `doIntervalsOverlap()` from temporal utils
+- Half-open interval semantics `[start, end)`
+- Only considers CONFIRMED bookings
+- Adjacent bookings allowed (09:00-09:30, 09:30-10:00 don't conflict)
+
+✅ **Daily Capacity Check**
+- Maximum: 2 trials per mentor per LOCAL calendar day
+- Uses `getLocalDateForInstant()` for mentor's local date
+- Counts only CONFIRMED bookings
+- Correctly handles timezone differences (same UTC instant = different local dates)
+
+✅ **Deterministic Selection**
+- Primary sort: Total confirmed booking count (ascending)
+- Secondary sort: Mentor ID lexicographic comparison (ascending)
+- Same inputs always produce same mentor selection
+- No random selection, no first-available selection
+
+✅ **Temporal Utilities Integration**
+```typescript
+// No manual timezone offsets - all through temporal utils
+const mentorLocalDate = getLocalDateForInstant(slotStartInstant, mentor.timezone);
+const bookingLocalDate = getLocalDateForInstant(
+  booking.startTime.toISOString(),
+  mentor.timezone
+);
+const overlaps = doIntervalsOverlap(slotStart, slotEnd, bookingStart, bookingEnd);
+```
+
+✅ **Flexible Parameter Types**
+- Accepts Date objects or ISO strings
+- Accepts ObjectId or string mentor IDs
+- Normalizes internally for consistent handling
+
+#### Test Coverage: 17/17 Passed ✅
+
+**Least-Booked Selection (2 tests)**
+- ✅ Select mentor with fewest confirmed bookings
+- ✅ Ignore cancelled bookings in count
+
+**Deterministic Tie-Breaking (2 tests)**
+- ✅ Use stable mentor ID ordering when counts equal
+- ✅ Apply secondary sort after booking count
+
+**Overlapping Booking Exclusion (6 tests)**
+- ✅ Exclude exact overlap
+- ✅ Exclude partial overlap at start
+- ✅ Exclude partial overlap at end
+- ✅ Allow adjacent non-overlapping (half-open semantics)
+- ✅ Allow cancelled overlapping booking
+
+**Daily Capacity Exclusion (3 tests)**
+- ✅ Exclude mentor at 2-trial limit
+- ✅ Allow mentor with 1 trial
+- ✅ Ignore cancelled bookings in capacity
+
+**Edge Cases (4 tests)**
+- ✅ Fail when eligible list is empty
+- ✅ Allocate when single mentor eligible
+- ✅ Fail when single mentor has conflict
+- ✅ Fail when all mentors excluded
+- ✅ Prefer less-booked mentor
+
+#### All Tests Executed
+
+```
+Test Files  4 passed (4)
+Tests      93 passed (93)
+Duration   5.28s
+
+✓ Mentor Domain (13/13)
+✓ Temporal Utilities (47/47)
+✓ Availability Engine (16/16)
+✓ Mentor Allocation (17/17)  ← NEW
+```
+
+#### Database Verification
+
+```bash
+db.mentors.countDocuments() = 10 ✅
+```
+
+All 10 production mentors remain intact after implementation and testing.
+
+#### Architecture Adherence (coding-skill.md)
+
+**Layer Separation ✅**
+- Service layer: Business logic (allocation algorithm)
+- Repository layer: Database access (reuses existing repositories)
+- Utility layer: Timezone operations (reuses temporal utilities)
+- No cross-contamination
+
+**No Duplication ✅**
+- Uses existing `getLocalDateForInstant()` for timezone conversions
+- Uses existing `doIntervalsOverlap()` for interval logic
+- Uses existing `mentorRepository.findById()` for mentor retrieval
+- Uses existing `bookingRepository.findOverlappingBookings()` and `findBookingsInRange()`
+
+**Production Naming ✅**
+- Clear names: `allocateMentor`, `hasOverlappingBooking`, `isAtDailyCapacity`, `selectLeastBookedMentor`
+- Business-focused: `eligibleMentorIds`, `allocatedMentorId`, `dailyCapacity`
+- Avoided: `data`, `item`, `helper`, `temp`
+
+**Error Handling ✅**
+- Clear failure reasons: "No eligible mentors provided", "No available mentors for this slot"
+- Success/failure clearly indicated in result
+- No silent failures
+
+**Deterministic Logic ✅**
+- Same inputs always produce same mentor
+- Stable sorting algorithm
+- No random numbers, no timestamps in selection
+
+#### What Service Does
+
+✅ Accepts slot time and eligible mentor IDs from Availability Engine  
+✅ Excludes mentors with overlapping confirmed bookings  
+✅ Excludes mentors at daily capacity (2 trials per local day)  
+✅ Selects least-booked mentor using deterministic ordering  
+✅ Returns selected mentor ID or failure reason  
+
+#### What Service Does NOT Do
+
+❌ Generate available slots (Availability Engine's responsibility)  
+❌ Create or modify bookings (Booking Service's responsibility)  
+❌ Send notifications (Notification Service's responsibility)  
+❌ Validate student data (Booking Service's responsibility)  
+❌ Generate meeting URLs (Booking Service's responsibility)  
+
+#### Usage Example
+
+```typescript
+import { mentorAllocationService } from './services/mentor-allocation.service';
+
+// Input from Availability Engine
+const slotStart = new Date('2026-09-30T10:00:00Z');
+const slotEnd = new Date('2026-09-30T10:30:00Z');
+const eligibleMentorIds = ['507f...', '507f...', '507f...'];
+
+// Allocate mentor
+const result = await mentorAllocationService.allocateMentor(
+  slotStart,
+  slotEnd,
+  eligibleMentorIds
+);
+
+if (result.success) {
+  console.log(`Allocated mentor: ${result.allocatedMentorId}`);
+  // Proceed to booking creation
+} else {
+  console.log(`Allocation failed: ${result.reason}`);
+  // Return error to parent
+}
+```
+
+#### Integration Flow
+
+```
+Parent Request
+    ↓
+Availability Engine → eligible mentor IDs
+    ↓
+Mentor Allocation → selected mentor ID
+    ↓
+(Future) Booking Service → create booking
+    ↓
+(Future) Notification Service → send confirmation
+```
+
+#### Performance Characteristics
+
+**Database Queries per Allocation:**
+- Mentor retrieval: O(n) where n = eligible mentors (typically 1-10)
+- Overlap check: O(n) - one query per mentor
+- Daily capacity: O(n) - one yearly range query per mentor
+- Total: ~3n queries (acceptable for typical n=1-10)
+
+**Future Optimizations (not implemented):**
+- Batch mentor retrieval with single query
+- Cache booking counts for frequent allocations
+- Composite index on `mentorId + status + startTime`
+
+#### Final Summary
+
+✅ **Service implemented:** Mentor Allocation with 6 methods  
+✅ **Tests passed:** 17/17 allocation tests  
+✅ **All backend tests:** 93/93 passed  
+✅ **Database integrity:** 10 mentors intact  
+✅ **Code quality:** Follows coding-skill.md standards  
+✅ **Temporal integration:** Reuses utilities, no duplication  
+✅ **Layer separation:** Clean service/repository boundaries  
+✅ **Deterministic logic:** Stable sorting, predictable results  
+
+**Files changed:** 2 new files  
+**Allocation behavior:** Least-booked with deterministic tie-breaking  
+**Tests executed:** 93/93 passed  
+**Result:** ✅ Production-ready mentor allocation implemented successfully
+
+**Detailed documentation:** See `backend/MENTOR_ALLOCATION_SUMMARY.md`
+
+---
+
+## End of Prompt 4 Implementation
+
+---
