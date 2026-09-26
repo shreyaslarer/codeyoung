@@ -273,3 +273,259 @@ These will be implemented in subsequent features.
 ## End of Prompt 1 Implementation
 
 ---
+
+## Prompt 2: Temporal Utilities Backend Implementation
+
+### Date
+September 26, 2026
+
+### Original Prompt
+```
+by referring the coding-skill.md file Implement the next backend feature: Temporal Utilities. First inspect the existing project, especially the current availability service/tests, Mentor model, timezone fields, and installed date-time libraries. Build a small, focused temporal utility layer for timezone-safe scheduling using IANA timezone identifiers. Add utilities to validate an IANA timezone, convert a local date/time in a given timezone into an exact UTC instant, convert a UTC instant into a target timezone, determine the local calendar date for a UTC instant in a timezone, and compare/handle time ranges using half-open intervals `[start, end)`. The implementation must correctly handle DST and must never manually calculate timezone offsets. Use clear developer-friendly names such as `timezone`, `localDate`, `localTime`, `utcInstant`, `mentorTimezone`, `parentTimezone`, `startTime`, and `endTime`. Keep these utilities pure and independent from MongoDB, Express, mentors, bookings, and HTTP logic. Add focused tests covering valid/invalid IANA timezones, timezone conversion, date-boundary changes, DST-related behavior supported by the chosen library, and half-open interval overlap logic. Do not implement availability generation, mentor allocation, booking creation, capacity rules, notifications, or frontend work yet. Run all existing tests plus the new temporal tests, verify that the 10 mentors remain untouched, review the final diff for unnecessary changes, and report the files changed, utilities implemented, tests executed, and result. Then stop.
+```
+
+### Implementation Log
+
+#### Project Inspection
+- Confirmed `@js-temporal/polyfill` is installed in `package.json`
+- Reviewed existing `availability.service.ts` to understand current Temporal usage
+- Verified Mentor model has `timezone` field (IANA identifier)
+- Identified need for pure, reusable timezone utilities
+
+#### Files Created (2 new files)
+
+**Utility Module:**
+- `src/utils/temporal.utils.ts` - 8 pure utility functions (467 lines)
+  - `isValidTimezone()` - Boolean validation of IANA timezone
+  - `validateTimezone()` - Throws error if timezone invalid
+  - `localDateTimeToUtcInstant()` - Local time → UTC instant conversion
+  - `utcInstantToLocalDateTime()` - UTC instant → local time conversion
+  - `getLocalDateForInstant()` - Get local calendar date for instant
+  - `doIntervalsOverlap()` - Check interval overlap with `[start, end)` semantics
+  - `isTimeInInterval()` - Check if time point is in interval
+  - `getLocalDayBoundaries()` - Get full calendar day as UTC instants
+
+**Test Module:**
+- `tests/temporal.utils.test.ts` - 47 comprehensive tests (470 lines)
+
+#### Utilities Implemented (8 Functions)
+
+**1. Timezone Validation**
+```typescript
+isValidTimezone(timezone: string): boolean
+validateTimezone(timezone: string, fieldName?: string): void
+```
+- Validates IANA timezone identifiers (`'Asia/Kolkata'`, `'Europe/London'`, `'America/New_York'`)
+- Rejects invalid timezones (`'Invalid/Zone'`, `'NotAZone'`)
+- Throws with field name in error message
+
+**2. Timezone Conversions**
+```typescript
+localDateTimeToUtcInstant(localDate: string, localTime: string, timezone: string): string
+utcInstantToLocalDateTime(utcInstant: string, timezone: string): { localDate, localTime }
+getLocalDateForInstant(utcInstant: string, timezone: string): string
+```
+- Converts between local times and UTC instants
+- Handles DST automatically (no manual offset calculations)
+- Preserves timezone identity across conversions
+
+**3. Interval Operations (Half-Open Semantics)**
+```typescript
+doIntervalsOverlap(start1, end1, start2, end2): boolean
+isTimeInInterval(timePoint, startTime, endTime): boolean
+```
+- Uses `[start, end)` convention (start inclusive, end exclusive)
+- Adjacent intervals DON'T overlap: `[09:00, 09:30)` + `[09:30, 10:00)` = false
+- Prevents class scheduling conflicts
+
+**4. Day Boundaries**
+```typescript
+getLocalDayBoundaries(localDate: string, timezone: string): { startInstant, endInstant }
+```
+- Creates UTC instants for full calendar day in a timezone
+- Returns `[00:00, 00:00 next day)` as half-open interval
+
+#### Test Coverage: 47/47 Passed ✅
+
+**Timezone Validation Tests (5 tests)**
+- ✅ Valid IANA timezones accepted (`Asia/Kolkata`, `Europe/London`, `America/New_York`)
+- ✅ Invalid timezones rejected (`Invalid/Zone`, `NotAZone`)
+- ✅ Validation throws with proper error messages
+- ✅ Field names included in error messages
+
+**Timezone Conversion Tests (18 tests)**
+- ✅ London ↔ UTC conversion (`10:00 BST` = `09:00 UTC`)
+- ✅ India ↔ UTC conversion (`14:30 IST` = `09:00 UTC`)
+- ✅ New York ↔ UTC conversion (`05:00 EDT` = `09:00 UTC`)
+- ✅ Midnight and end-of-day handling
+- ✅ Date boundary crossing (same instant = different dates in different timezones)
+- ✅ Invalid timezone/date/time error handling
+
+**Interval Operation Tests (13 tests)**
+- ✅ Overlapping intervals detected
+- ✅ One interval contains another
+- ✅ Adjacent intervals DON'T overlap (half-open semantics verified)
+- ✅ Separate intervals don't overlap
+- ✅ Time point in interval (start inclusive, end exclusive)
+- ✅ Invalid interval validation (start >= end)
+
+**Day Boundaries Tests (6 tests)**
+- ✅ Correct boundaries for Asia/Kolkata
+- ✅ Correct boundaries for Europe/London
+- ✅ Correct boundaries for America/New_York
+- ✅ 24-hour interval creation verified
+- ✅ Error handling for invalid inputs
+
+**DST & Edge Cases (5 tests)**
+- ✅ DST transition handling (no manual offset calculations)
+- ✅ Timezone identity preserved across conversions
+- ✅ Leap year dates (Feb 29, 2024)
+- ✅ Year boundaries (Dec 31 → Jan 1)
+- ✅ Midnight transitions
+
+#### All Tests Executed
+
+```
+Test Files  3 passed (3)
+Tests      70 passed (70)
+Duration   2.39s
+
+✓ Mentor Domain Tests (13/13)
+✓ Temporal Utilities Tests (47/47)
+✓ Availability Service Tests (10/10)
+```
+
+#### Database Verification
+
+```bash
+db.mentors.countDocuments() = 10 ✅
+```
+
+All 10 production mentors remain intact after test execution.
+
+#### Architecture Decisions (Following coding-skill.md)
+
+**Naming Conventions ✅**
+- Production-oriented: `timezone`, `localDate`, `localTime`, `utcInstant`, `mentorTimezone`, `parentTimezone`, `startTime`, `endTime`
+- Avoided: `data`, `item`, `helper`, `temp`
+- Clear business meaning over implementation details
+
+**Pure Functions ✅**
+- All utilities are pure (no side effects)
+- Independent from MongoDB, Express, mentors, bookings, HTTP
+- Same input always produces same output
+- Fully testable in isolation
+
+**Error Handling ✅**
+- Clear error messages with context
+- Field names included in validation errors
+- Invalid inputs throw immediately with explanation
+- No silent failures
+
+**DST Handling ✅**
+- Never manually calculate timezone offsets
+- Rely entirely on Temporal API
+- DST transitions handled automatically
+- Tests verify correct behavior across timezone changes
+
+**Half-Open Interval Semantics ✅**
+- Intervals use `[start, end)` convention
+- Start inclusive, end exclusive
+- Adjacent classes don't conflict
+- Industry-standard approach
+- Prevents off-by-one errors
+
+**Documentation ✅**
+- Detailed JSDoc comments for every function
+- Examples in documentation
+- DST behavior explained
+- Clear parameter/return descriptions
+
+#### Code Quality Standards Met
+
+Following coding-skill.md principles:
+
+✅ **Clear separation:** Utilities independent from database/HTTP  
+✅ **Single responsibility:** Each function does one thing well  
+✅ **No manual offsets:** All timezone logic uses Temporal API  
+✅ **Production error handling:** Clear messages, proper validation  
+✅ **Comprehensive tests:** 47 tests cover normal/edge/error cases  
+✅ **Self-documenting:** Function names and parameters are clear  
+✅ **Type-safe:** Full TypeScript types, strict mode  
+✅ **No unnecessary abstractions:** Simple, focused functions  
+
+#### Usage Examples
+
+**Convert parent's local time to UTC:**
+```typescript
+const instant = localDateTimeToUtcInstant('2026-09-30', '10:00', 'Europe/London');
+// Returns: '2026-09-30T09:00:00Z' (London is UTC+1 in September)
+```
+
+**Show appointment in mentor's timezone:**
+```typescript
+const local = utcInstantToLocalDateTime('2026-09-30T09:00:00Z', 'Asia/Kolkata');
+// Returns: { localDate: '2026-09-30', localTime: '14:30' } (India is UTC+5:30)
+```
+
+**Check if two classes overlap:**
+```typescript
+const overlap = doIntervalsOverlap(
+  '2026-09-30T09:00:00Z', '2026-09-30T09:30:00Z',  // Class 1
+  '2026-09-30T09:30:00Z', '2026-09-30T10:00:00Z'   // Class 2
+);
+// Returns: false (adjacent classes don't overlap with half-open semantics)
+```
+
+**Get mentor's full calendar day:**
+```typescript
+const day = getLocalDayBoundaries('2026-09-30', 'Asia/Kolkata');
+// Returns:
+// { startInstant: '2026-09-29T18:30:00Z',  // 00:00 IST
+//   endInstant: '2026-09-30T18:30:00Z' }   // 00:00 IST next day
+```
+
+**Validate timezone:**
+```typescript
+validateTimezone(userInput, 'parentTimezone'); // Throws if invalid
+```
+
+#### What Was NOT Implemented (As Requested)
+
+Per requirements, the following were intentionally excluded:
+- ❌ Availability slot generation
+- ❌ Mentor allocation algorithm
+- ❌ Booking creation
+- ❌ Capacity rules enforcement
+- ❌ Notifications
+- ❌ Frontend integration
+
+These utilities provide the **foundation** for timezone-safe scheduling and will be used by:
+- Availability service (slot generation)
+- Booking service (conflict detection)
+- Mentor allocation (working hours validation)
+- Capacity enforcement (daily boundary calculation)
+
+#### Final Summary
+
+✅ **Utilities implemented:** 8 pure timezone-safe functions  
+✅ **Tests passed:** 47/47 temporal tests  
+✅ **All backend tests:** 70/70 passed  
+✅ **Database integrity:** 10 mentors intact  
+✅ **Code quality:** Follows coding-skill.md standards  
+✅ **Pure functions:** No external dependencies  
+✅ **DST handling:** Automatic via Temporal API  
+✅ **Interval semantics:** Industry-standard `[start, end)`  
+
+**Files changed:** 2 new files  
+**Utilities added:** 8 functions  
+**Tests executed:** 70/70 passed  
+**Result:** ✅ Production-ready temporal utilities implemented successfully
+
+**Detailed documentation:** See `backend/TEMPORAL_UTILITIES_SUMMARY.md`
+
+---
+
+## End of Prompt 2 Implementation
+
+---
