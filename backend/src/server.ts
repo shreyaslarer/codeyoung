@@ -1,8 +1,11 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { connectToDatabase } from './db/connection.js';
 import mentorRoutes from './routes/mentor.routes.js';
 import schedulingRoutes from './routes/scheduling.routes.js';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

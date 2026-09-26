@@ -11,10 +11,13 @@ describe('Scheduling REST API', () => {
 
   beforeAll(async () => {
     await connectToDatabase();
-    const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      throw new Error('MONGODB_URI is not defined in environment variables');
+    }
     client = new MongoClient(uri);
     await client.connect();
-    db = client.db('codeyoung_trial_booking');
+    db = client.db();
   });
 
   afterAll(async () => {

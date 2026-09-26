@@ -1,8 +1,11 @@
+import dotenv from 'dotenv';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import { MentorAllocationService } from '../src/services/mentor-allocation.service';
 import { MentorRepository } from '../src/repositories/mentor.repository';
 import { BookingRepository } from '../src/models/booking.repository';
+
+dotenv.config();
 
 describe('Mentor Allocation Service', () => {
   let client: MongoClient;
@@ -30,10 +33,13 @@ describe('Mentor Allocation Service', () => {
   });
 
   beforeAll(async () => {
-    const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      throw new Error('MONGODB_URI is not defined in environment variables');
+    }
     client = new MongoClient(uri);
     await client.connect();
-    db = client.db('codeyoung_trial_booking');
+    db = client.db();
 
     mentorRepository = new MentorRepository(db);
     bookingRepository = new BookingRepository(db);

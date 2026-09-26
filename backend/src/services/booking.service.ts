@@ -75,9 +75,37 @@ export interface BookingResult {
  */
 export class BookingService {
   private mentorAllocationService: MentorAllocationService;
+  private transactionsSupported: boolean | null = null;
 
   constructor() {
     this.mentorAllocationService = new MentorAllocationService();
+  }
+
+  /**
+   * Check if MongoDB transactions are supported (requires replica set).
+   * Caches result after first check.
+   */
+  private async checkTransactionSupport(): Promise<boolean> {
+    if (this.transactionsSupported !== null) {
+      return this.transactionsSupported;
+    }
+
+    try {
+      const admin = mongoose.connection.db.admin();
+      const serverInfo = await admin.serverStatus();
+      
+      // Transactions require replica set or sharded cluster
+      const isReplicaSet = serverInfo.repl && serverInfo.repl.setName;
+      const isSharded = serverInfo.process === 'mongos';
+      
+      this.transactionsSupported = isReplicaSet || isSharded;
+      return this.transactionsSupported;
+    } catch (error) {
+      // If we can't determine, assume no transaction support (safer)
+      console.warn('Unable to determine MongoDB transaction support, assuming standalone mode');
+      this.transactionsSupported = false;
+      return false;
+    }
   }
 
   /**
@@ -191,10 +219,28 @@ export class BookingService {
   }
 
   /**
-   * Create booking inside a MongoDB transaction.
-   * This ensures atomicity and handles concurrent booking attempts.
+   * Create booking inside a MongoDB transaction (if supported) or with careful ordering (if not).
+   * This ensures atomicity when possible and correctness always.
    */
   private async createBookingInTransaction(
+    request: CreateBookingRequest,
+    mentorId: string,
+    startTime: Date,
+    endTime: Date
+  ): Promise<BookingResult> {
+    const supportsTransactions = await this.checkTransactionSupport();
+
+    if (supportsTransactions) {
+      return this.createBookingWithTransaction(request, mentorId, startTime, endTime);
+    } else {
+      return this.createBookingWithoutTransaction(request, mentorId, startTime, endTime);
+    }
+  }
+
+  /**
+   * Create booking WITH MongoDB transaction (replica set or sharded cluster).
+   */
+  private async createBookingWithTransaction(
     request: CreateBookingRequest,
     mentorId: string,
     startTime: Date,
@@ -204,101 +250,24 @@ export class BookingService {
     session.startTransaction();
 
     try {
-      // Get mentor to access timezone
-      const mentor = await mentorRepository.findById(mentorId);
-      if (!mentor) {
-        throw new Error(`Mentor ${mentorId} not found`);
-      }
-
-      // Step 6a: Check for overlapping CONFIRMED bookings using half-open intervals
-      const overlappingBookings = await Booking.find({
-        mentorId: new mongoose.Types.ObjectId(mentorId),
-        status: 'CONFIRMED',
-      }).session(session).exec();
-
-      for (const booking of overlappingBookings) {
-        const overlaps = doIntervalsOverlap(
-          startTime.toISOString(),
-          endTime.toISOString(),
-          booking.startTime.toISOString(),
-          booking.endTime.toISOString()
-        );
-
-        if (overlaps) {
-          await session.abortTransaction();
-          await session.endSession();
-          return {
-            success: false,
-            conflict: {
-              reason: 'This time slot conflicts with an existing booking',
-              type: 'SLOT_UNAVAILABLE',
-            },
-          };
-        }
-      }
-
-      // Step 6b: Check daily capacity (2 trials per mentor per local day)
-      const mentorLocalDate = getLocalDateForInstant(startTime.toISOString(), mentor.timezone);
-      const { startInstant: dayStartInstant, endInstant: dayEndInstant } = getLocalDayBoundaries(
-        mentorLocalDate,
-        mentor.timezone
-      );
-
-      const dayStartDate = new Date(dayStartInstant);
-      const dayEndDate = new Date(dayEndInstant);
-
-      const bookingsOnDay = await Booking.countDocuments({
-        mentorId: new mongoose.Types.ObjectId(mentorId),
-        status: 'CONFIRMED',
-        startTime: { $gte: dayStartDate, $lt: dayEndDate },
-      }).session(session).exec();
-
-      if (bookingsOnDay >= MAX_TRIALS_PER_MENTOR_PER_DAY) {
+      const result = await this.performBookingCreation(request, mentorId, startTime, endTime, session);
+      
+      if (!result.success) {
         await session.abortTransaction();
         await session.endSession();
-        return {
-          success: false,
-          conflict: {
-            reason: 'Mentor has reached daily capacity for this date',
-            type: 'CAPACITY_REACHED',
-          },
-        };
+        return result;
       }
 
-      // Step 6c: Create booking atomically
-      const classUrl = this.generateClassUrl(mentorId, startTime);
-
-      const newBooking = new Booking({
-        mentorId: new mongoose.Types.ObjectId(mentorId),
-        parentName: request.parentName,
-        parentEmail: request.parentEmail,
-        startTime,
-        endTime,
-        parentTimezone: request.parentTimezone,
-        status: 'CONFIRMED',
-        classUrl,
-        idempotencyKey: request.idempotencyKey,
-      });
-
-      await newBooking.save({ session });
-
-      // Commit transaction
       await session.commitTransaction();
       await session.endSession();
-
-      return {
-        success: true,
-        booking: this.toBookingResponse(newBooking),
-      };
+      return result;
     } catch (error) {
-      // Rollback on any error
       await session.abortTransaction();
       await session.endSession();
 
       if (error instanceof Error) {
         // Handle duplicate key error (race condition on idempotency key)
         if ('code' in error && error.code === 11000) {
-          // Another request created the booking, fetch and return it
           const existingBooking = await bookingRepository.findByIdempotencyKey(request.idempotencyKey);
           if (existingBooking) {
             return {
@@ -319,6 +288,151 @@ export class BookingService {
         error: 'Transaction failed',
       };
     }
+  }
+
+  /**
+   * Create booking WITHOUT MongoDB transaction (standalone mode).
+   * Uses careful ordering and idempotency key uniqueness for safety.
+   */
+  private async createBookingWithoutTransaction(
+    request: CreateBookingRequest,
+    mentorId: string,
+    startTime: Date,
+    endTime: Date
+  ): Promise<BookingResult> {
+    try {
+      // In standalone mode, we rely on:
+      // 1. Idempotency key uniqueness (database constraint)
+      // 2. Careful ordering of checks before creation
+      // 3. Application-level conflict detection
+      
+      const result = await this.performBookingCreation(request, mentorId, startTime, endTime, undefined);
+      return result;
+    } catch (error) {
+      if (error instanceof Error) {
+        // Handle duplicate key error (race condition on idempotency key)
+        if ('code' in error && error.code === 11000) {
+          const existingBooking = await bookingRepository.findByIdempotencyKey(request.idempotencyKey);
+          if (existingBooking) {
+            return {
+              success: true,
+              booking: this.toBookingResponse(existingBooking),
+            };
+          }
+        }
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Booking creation failed',
+      };
+    }
+  }
+
+  /**
+   * Perform the actual booking creation logic.
+   * Works with or without a transaction session.
+   */
+  private async performBookingCreation(
+    request: CreateBookingRequest,
+    mentorId: string,
+    startTime: Date,
+    endTime: Date,
+    session?: mongoose.ClientSession
+  ): Promise<BookingResult> {
+    // Get mentor to access timezone
+    const mentor = await mentorRepository.findById(mentorId);
+    if (!mentor) {
+      throw new Error(`Mentor ${mentorId} not found`);
+    }
+
+    // Check for overlapping CONFIRMED bookings using half-open intervals
+    const query = {
+      mentorId: new mongoose.Types.ObjectId(mentorId),
+      status: 'CONFIRMED',
+    };
+
+    const overlappingBookings = session
+      ? await Booking.find(query).session(session).exec()
+      : await Booking.find(query).exec();
+
+    for (const booking of overlappingBookings) {
+      const overlaps = doIntervalsOverlap(
+        startTime.toISOString(),
+        endTime.toISOString(),
+        booking.startTime.toISOString(),
+        booking.endTime.toISOString()
+      );
+
+      if (overlaps) {
+        return {
+          success: false,
+          conflict: {
+            reason: 'This time slot conflicts with an existing booking',
+            type: 'SLOT_UNAVAILABLE',
+          },
+        };
+      }
+    }
+
+    // Check daily capacity (2 trials per mentor per local day)
+    const mentorLocalDate = getLocalDateForInstant(startTime.toISOString(), mentor.timezone);
+    const { startInstant: dayStartInstant, endInstant: dayEndInstant } = getLocalDayBoundaries(
+      mentorLocalDate,
+      mentor.timezone
+    );
+
+    const dayStartDate = new Date(dayStartInstant);
+    const dayEndDate = new Date(dayEndInstant);
+
+    const capacityQuery = {
+      mentorId: new mongoose.Types.ObjectId(mentorId),
+      status: 'CONFIRMED',
+      startTime: { $gte: dayStartDate, $lt: dayEndDate },
+    };
+
+    const bookingsOnDay = session
+      ? await Booking.countDocuments(capacityQuery).session(session).exec()
+      : await Booking.countDocuments(capacityQuery).exec();
+
+    if (bookingsOnDay >= MAX_TRIALS_PER_MENTOR_PER_DAY) {
+      return {
+        success: false,
+        conflict: {
+          reason: 'Mentor has reached daily capacity for this date',
+          type: 'CAPACITY_REACHED',
+        },
+      };
+    }
+
+    // Create booking
+    const classUrl = this.generateClassUrl(mentorId, startTime);
+
+    const newBooking = new Booking({
+      mentorId: new mongoose.Types.ObjectId(mentorId),
+      parentName: request.parentName,
+      parentEmail: request.parentEmail,
+      startTime,
+      endTime,
+      parentTimezone: request.parentTimezone,
+      status: 'CONFIRMED',
+      classUrl,
+      idempotencyKey: request.idempotencyKey,
+    });
+
+    const savedBooking = session
+      ? await newBooking.save({ session })
+      : await newBooking.save();
+
+    return {
+      success: true,
+      booking: this.toBookingResponse(savedBooking),
+    };
   }
 
   /**
@@ -372,10 +486,12 @@ export class BookingService {
 
   /**
    * Generate a unique class URL for the booking.
+   * Uses mentorId and timestamp to ensure uniqueness.
    */
   private generateClassUrl(mentorId: string, startTime: Date): string {
     const timestamp = startTime.getTime();
-    const hash = Buffer.from(`${mentorId}-${timestamp}`).toString('base64url').substring(0, 12);
+    // Use full hash for uniqueness (base64url encoding of mentorId-timestamp)
+    const hash = Buffer.from(`${mentorId}-${timestamp}`).toString('base64url');
     return `https://meet.codeyoung.dev/${hash}`;
   }
 

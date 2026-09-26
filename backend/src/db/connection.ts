@@ -3,13 +3,17 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/codeyoung_trial_booking';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 let isConnected = false;
 
 export async function connectToDatabase(): Promise<void> {
   if (isConnected) {
     return;
+  }
+
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is not defined in environment variables. Please check your .env file.');
   }
 
   try {
@@ -36,5 +40,8 @@ export async function disconnectFromDatabase(): Promise<void> {
     throw error;
   }
 }
+
+export const connectDatabase = connectToDatabase;
+export const disconnectDatabase = disconnectFromDatabase;
 
 export { mongoose };
