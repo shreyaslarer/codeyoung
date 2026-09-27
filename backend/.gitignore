@@ -1,0 +1,28 @@
+# MongoDB data directory (replica set)
+data/
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env.local
+
+# Build output
+dist/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/

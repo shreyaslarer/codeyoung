@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import 'dotenv/config';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/codeyoung_trial_booking';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27018/codeyoung_trial_booking';
 
 async function verifyTransactionSupport() {
   console.log('=== MongoDB Transaction Support Verification ===\n');

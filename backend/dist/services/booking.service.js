@@ -46,6 +46,7 @@ export class BookingService {
         try {
             const db = mongoose.connection.db;
             if (!db) {
+                console.warn('⚠️  MongoDB database not connected - transactions DISABLED');
                 this.transactionsSupported = false;
                 return false;
             }
@@ -55,11 +56,20 @@ export class BookingService {
             const isReplicaSet = Boolean(serverInfo.repl && serverInfo.repl.setName);
             const isSharded = serverInfo.process === 'mongos';
             this.transactionsSupported = Boolean(isReplicaSet || isSharded);
+            if (this.transactionsSupported) {
+                const replSetName = serverInfo.repl?.setName || 'unknown';
+                console.log(`✅ MongoDB transactions ENABLED (replica set: ${replSetName})`);
+            }
+            else {
+                console.warn('⚠️  MongoDB transactions DISABLED - running in standalone mode');
+                console.warn('⚠️  Race conditions possible! Enable replica set for production.');
+            }
             return this.transactionsSupported;
         }
         catch (error) {
             // If we can't determine, assume no transaction support (safer)
-            console.warn('Unable to determine MongoDB transaction support, assuming standalone mode');
+            console.warn('⚠️  Unable to determine MongoDB transaction support, assuming standalone mode');
+            console.warn('⚠️  Error:', error instanceof Error ? error.message : 'Unknown error');
             this.transactionsSupported = false;
             return false;
         }
