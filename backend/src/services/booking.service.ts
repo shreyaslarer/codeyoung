@@ -91,14 +91,19 @@ export class BookingService {
     }
 
     try {
-      const admin = mongoose.connection.db.admin();
+      const db = mongoose.connection.db;
+      if (!db) {
+        this.transactionsSupported = false;
+        return false;
+      }
+      const admin = db.admin();
       const serverInfo = await admin.serverStatus();
       
       // Transactions require replica set or sharded cluster
-      const isReplicaSet = serverInfo.repl && serverInfo.repl.setName;
+      const isReplicaSet = Boolean(serverInfo.repl && serverInfo.repl.setName);
       const isSharded = serverInfo.process === 'mongos';
       
-      this.transactionsSupported = isReplicaSet || isSharded;
+      this.transactionsSupported = Boolean(isReplicaSet || isSharded);
       return this.transactionsSupported;
     } catch (error) {
       // If we can't determine, assume no transaction support (safer)

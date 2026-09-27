@@ -96,6 +96,7 @@ export declare class BookingService {
     private validateBookingRequest;
     /**
      * Generate a unique class URL for the booking.
+     * Uses mentorId and timestamp to ensure uniqueness.
      */
     private generateClassUrl;
     /**

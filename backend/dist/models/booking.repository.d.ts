@@ -6,5 +6,7 @@ export declare class BookingRepository {
     findByIdempotencyKey(key: string): Promise<IBooking | null>;
     findById(bookingId: string): Promise<IBooking | null>;
     findByMentorId(mentorId: string): Promise<IBooking[]>;
+    findRecentBookings(limit?: number): Promise<IBooking[]>;
+    findAllBookings(): Promise<IBooking[]>;
 }
 export declare const bookingRepository: BookingRepository;

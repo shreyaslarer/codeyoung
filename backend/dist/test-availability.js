@@ -19,12 +19,12 @@ async function testAvailability() {
             console.log(`\nTimezone: ${timezone}`);
             console.log('-'.repeat(70));
             const result = await availabilityService.getAvailableSlots(testDate, timezone);
-            console.log(`Date: ${result.date}`);
+            console.log(`Date: ${result.parentDate}`);
             console.log(`Total slots available: ${result.slots.length}`);
             if (result.slots.length > 0) {
                 console.log('\nFirst 5 slots:');
                 result.slots.slice(0, 5).forEach((slot, index) => {
-                    console.log(`  ${index + 1}. ${slot.parentLocalTime} (${slot.instant})`);
+                    console.log(`  ${index + 1}. ${slot.parentLocalTime} (${slot.startInstant})`);
                 });
                 if (result.slots.length > 5) {
                     console.log(`  ... and ${result.slots.length - 5} more slots`);

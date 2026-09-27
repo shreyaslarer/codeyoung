@@ -36,5 +36,18 @@ export class BookingRepository {
             mentorId: new mongoose.Types.ObjectId(mentorId),
         }).sort({ startTime: -1 }).exec();
     }
+    async findRecentBookings(limit = 50) {
+        return Booking.find({ status: 'CONFIRMED' })
+            .populate('mentorId')
+            .sort({ createdAt: -1, startTime: -1 })
+            .limit(limit)
+            .exec();
+    }
+    async findAllBookings() {
+        return Booking.find({ status: 'CONFIRMED' })
+            .populate('mentorId')
+            .sort({ createdAt: -1, startTime: -1 })
+            .exec();
+    }
 }
 export const bookingRepository = new BookingRepository();

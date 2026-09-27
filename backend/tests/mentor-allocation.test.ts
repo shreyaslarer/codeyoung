@@ -57,7 +57,8 @@ describe('Mentor Allocation Service', () => {
   });
 
   beforeEach(async () => {
-    // Clean up test bookings before each test
+    // Clean up ALL test bookings for these mentors before each test
+    // This ensures accurate booking counts for the allocation tests
     await db.collection('bookings').deleteMany({
       mentorId: { $in: [mentor1Id, mentor2Id, mentor3Id] }
     });

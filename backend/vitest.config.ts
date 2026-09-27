@@ -6,5 +6,6 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./tests/setup.ts"],
     testTimeout: 10000,
+    fileParallelism: false, // Run test files sequentially to avoid DB conflicts
   },
 });
