@@ -1,14 +1,19 @@
 import { mentorRepository } from '../repositories/mentor.repository.js';
+import { bookingRepository } from '../models/booking.repository.js';
 import { IMentor } from '../models/mentor.schema.js';
 import {
   validateTimezone,
   utcInstantToLocalDateTime,
   getLocalDateForInstant,
+  doIntervalsOverlap,
+  getLocalDayBoundaries,
 } from '../utils/temporal.utils.js';
 import { Temporal } from '@js-temporal/polyfill';
 
 const DEFAULT_TRIAL_DURATION_MINUTES = 30;
 const DEFAULT_SLOT_INTERVAL_MINUTES = 30;
+/** Maximum confirmed trial bookings a mentor may take on a single local calendar day. */
+const MAX_DAILY_TRIALS_PER_MENTOR = 2;
 
 /**
  * Represents a single available time slot.
@@ -88,12 +93,54 @@ export class AvailabilityService {
       activeMentors
     );
 
+    // ------------------------------------------------------------------
+    // Bulk-load confirmed bookings for all active mentors that touch the
+    // parent-requested day.  We widen the UTC window by ±1 day to safely
+    // cover all timezone offsets without any manual offset arithmetic.
+    // One DB round-trip serves every slot below.
+    // ------------------------------------------------------------------
+    const parentPlainDate = Temporal.PlainDate.from(parentDate);
+
+    const windowStart = new Date(
+      parentPlainDate.subtract({ days: 1 })
+        .toZonedDateTime({ timeZone: parentTimezone, plainTime: '00:00' })
+        .toInstant()
+        .toString()
+    );
+    const windowEnd = new Date(
+      parentPlainDate.add({ days: 1 })
+        .toZonedDateTime({ timeZone: parentTimezone, plainTime: '00:00' })
+        .toInstant()
+        .toString()
+    );
+
+    const mentorIdStrings = activeMentors.map(m => m._id.toString());
+    const existingBookings = await bookingRepository.findConfirmedBookingsForMentorsInWindow(
+      mentorIdStrings,
+      windowStart,
+      windowEnd,
+    );
+
+    // Index: mentorId → list of confirmed bookings within the window
+    const bookingsByMentor = new Map<string, Array<{ startTime: Date; endTime: Date }>>();
+    for (const booking of existingBookings) {
+      const mid = booking.mentorId.toString();
+      if (!bookingsByMentor.has(mid)) {
+        bookingsByMentor.set(mid, []);
+      }
+      bookingsByMentor.get(mid)!.push({
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+      });
+    }
+
     // Filter slots by checking which mentors can handle each slot
     const availableSlots = this.filterSlotsByMentorAvailability(
       candidateSlots,
       parentDate,
       parentTimezone,
-      activeMentors
+      activeMentors,
+      bookingsByMentor,
     );
 
     return {
@@ -230,26 +277,71 @@ export class AvailabilityService {
 
   /**
    * Filter candidate slots by checking which mentors can handle each slot.
-   * 
-   * A mentor can handle a slot if:
-   * 1. The slot falls completely within the mentor's working hours
-   * 2. Using half-open interval semantics [start, end)
+   *
+   * A mentor is included in a slot's eligibleMentorIds only if ALL of:
+   * 1. The slot falls completely within the mentor's working hours (half-open [start, end))
+   * 2. The mentor has no confirmed booking that overlaps the slot interval
+   * 3. The mentor has not reached the 2-trial daily limit on their local calendar day
+   *
+   * Conditions 2 & 3 use the bookingsByMentor map built with a single DB query
+   * in getAvailableSlots — no per-mentor DB round-trips here.
+   *
+   * Invariant: a slot with N eligible mentors can absorb exactly N simultaneous
+   * bookings.  The slot disappears from the response only once N reaches 0.
    */
   private filterSlotsByMentorAvailability(
     candidateSlots: Map<string, { startInstant: string; endInstant: string }>,
     parentDate: string,
     parentTimezone: string,
-    mentors: IMentor[]
+    mentors: IMentor[],
+    bookingsByMentor: Map<string, Array<{ startTime: Date; endTime: Date }>>,
   ): AvailableSlot[] {
     const availableSlots: AvailableSlot[] = [];
 
-    for (const [slotKey, slotData] of candidateSlots.entries()) {
+    for (const [_slotKey, slotData] of candidateSlots.entries()) {
       const eligibleMentorIds: string[] = [];
 
       for (const mentor of mentors) {
-        if (this.canMentorHandleSlot(slotData.startInstant, slotData.endInstant, mentor)) {
-          eligibleMentorIds.push(mentor._id.toString());
+        // 1. Working-hours check (pure time math, no DB)
+        if (!this.canMentorHandleSlot(slotData.startInstant, slotData.endInstant, mentor)) {
+          continue;
         }
+
+        const mentorId = mentor._id.toString();
+        const mentorBookings = bookingsByMentor.get(mentorId) ?? [];
+
+        // 2. Overlap check: mentor must not have a confirmed booking at this exact interval
+        const hasConflict = mentorBookings.some(b =>
+          doIntervalsOverlap(
+            slotData.startInstant,
+            slotData.endInstant,
+            b.startTime.toISOString(),
+            b.endTime.toISOString(),
+          )
+        );
+        if (hasConflict) {
+          continue;
+        }
+
+        // 3. Daily capacity check: count confirmed bookings on the mentor's local calendar day
+        const mentorLocalDate = getLocalDateForInstant(slotData.startInstant, mentor.timezone);
+        const { startInstant: dayStart, endInstant: dayEnd } = getLocalDayBoundaries(
+          mentorLocalDate,
+          mentor.timezone,
+        );
+        const dayStartMs = new Date(dayStart).getTime();
+        const dayEndMs = new Date(dayEnd).getTime();
+
+        const bookingsOnDay = mentorBookings.filter(b => {
+          const ms = b.startTime.getTime();
+          return ms >= dayStartMs && ms < dayEndMs;
+        }).length;
+
+        if (bookingsOnDay >= MAX_DAILY_TRIALS_PER_MENTOR) {
+          continue;
+        }
+
+        eligibleMentorIds.push(mentorId);
       }
 
       // Only include slots that have at least one eligible mentor

@@ -49,5 +49,32 @@ export class BookingRepository {
             .sort({ createdAt: -1, startTime: -1 })
             .exec();
     }
+    /**
+     * Fetch all CONFIRMED bookings for a set of mentors that overlap a UTC window.
+     *
+     * Used by the availability service to filter eligibleMentorIds per slot in a
+     * single DB round-trip rather than N+1 queries (one per mentor per slot).
+     *
+     * The window should span [dayStart, dayEnd) in UTC — wide enough to cover the
+     * full parent-requested date even after timezone offset.  Overlap is detected
+     * via the standard half-open interval test:
+     *
+     *   booking.startTime < windowEnd  AND  booking.endTime > windowStart
+     *
+     * @param mentorIds - ObjectId strings for the mentors to query
+     * @param windowStart - inclusive UTC start of the window (Date)
+     * @param windowEnd   - exclusive UTC end of the window (Date)
+     */
+    async findConfirmedBookingsForMentorsInWindow(mentorIds, windowStart, windowEnd) {
+        return Booking.find({
+            mentorId: { $in: mentorIds.map(id => new mongoose.Types.ObjectId(id)) },
+            status: 'CONFIRMED',
+            startTime: { $lt: windowEnd },
+            endTime: { $gt: windowStart },
+        })
+            .select('mentorId startTime endTime status')
+            .lean()
+            .exec();
+    }
 }
 export const bookingRepository = new BookingRepository();

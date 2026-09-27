@@ -62,9 +62,16 @@ export declare class AvailabilityService {
     /**
      * Filter candidate slots by checking which mentors can handle each slot.
      *
-     * A mentor can handle a slot if:
-     * 1. The slot falls completely within the mentor's working hours
-     * 2. Using half-open interval semantics [start, end)
+     * A mentor is included in a slot's eligibleMentorIds only if ALL of:
+     * 1. The slot falls completely within the mentor's working hours (half-open [start, end))
+     * 2. The mentor has no confirmed booking that overlaps the slot interval
+     * 3. The mentor has not reached the 2-trial daily limit on their local calendar day
+     *
+     * Conditions 2 & 3 use the bookingsByMentor map built with a single DB query
+     * in getAvailableSlots — no per-mentor DB round-trips here.
+     *
+     * Invariant: a slot with N eligible mentors can absorb exactly N simultaneous
+     * bookings.  The slot disappears from the response only once N reaches 0.
      */
     private filterSlotsByMentorAvailability;
     /**
