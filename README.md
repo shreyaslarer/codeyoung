@@ -250,21 +250,19 @@ The system therefore treats DST behavior as part of scheduling correctness rathe
 
 The availability engine is the mathematical core of the booking system.
 
-```mermaid
 flowchart TD
     A["Parent Date + IANA Timezone"] --> B["Generate Candidate Local Slots"]
     B --> C["Temporal Conversion"]
     C --> D["Exact Instants"]
     D --> E["Convert to Mentor Timezone"]
-    E --> FWithin Working Hours?
+    E --> F{"Within Working Hours?"}
     F -- No --> X["Discard"]
-    F -- Yes --> GExisting Booking Conflict?
+    F -- Yes --> G{"Existing Booking Conflict?"}
     G -- Yes --> X
-    G -- No --> HDaily Count < 2?
+    G -- No --> H{"Daily Count < 2?"}
     H -- No --> X
     H -- Yes --> I["Eligible Mentor Exists"]
     I --> J["Return Parent-Local Slot"]
-```
 
 The frontend never decides whether a slot is truly bookable.
 
