@@ -1,8 +1,8 @@
 <div align="center">
 
-# Codeyoung Trial-Class Booking System
+<h1>Codeyoung Trial-Class Booking System</h1>
 
-### Timezone-aware • Mentor-aware • Concurrency-safe • Calendar-connected
+<p><strong>Timezone-aware · Mentor-aware · Concurrency-safe · Calendar-connected</strong></p>
 
 <p>
   <a href="https://drive.google.com/file/d/1gv5-xCCyO4xnB1QaqRDJS8fqktmNCdE8/view?usp=drivesdk"><strong>▶ View Complete Prototype</strong></a>
@@ -43,7 +43,7 @@ This project treats scheduling as a **distributed time-and-resource problem**.
              TEMPORAL
                    │
                    ▼
-          Exact Time Instant
+          **Exact Time Instant**
                    │
         ┌──────────┴──────────┐
         ▼                     ▼
@@ -60,20 +60,20 @@ This project treats scheduling as a **distributed time-and-resource problem**.
         Eligible Mentor Pool
                    │
                    ▼
-       Automatic Mentor Allocation
+       **Automatic Mentor Allocation**
                    │
                    ▼
-       Transaction + Revalidation
+       **Transaction + Revalidation**
                    │
           ┌────────┴────────┐
           ▼                 ▼
        Confirmed          Conflict
           │
           ▼
- Google Calendar + Class Link
+ **Google Calendar + Class Link**
           │
           ▼
-   Mentor / Company Dashboard
+   **Mentor / Company Dashboard**
 ```
 
 > **The parent chooses WHEN. The system chooses WHO. The database decides WHETHER the booking can safely exist.**
@@ -772,7 +772,7 @@ That separation is the core product and engineering decision.
 ### Core scheduling pipeline
 
 ```text
-Parent local intent
+**Parent local intent**
        ↓
 IANA timezone
        ↓
