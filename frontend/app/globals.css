@@ -1,0 +1,385 @@
+@import "tailwindcss";
+
+:root {
+  /* 85% calm studio paper canvas — reducing 100% white glare to ~85% */
+  --background: #DFE4EA;
+  --canvas-subtle: #E6EBF1;
+  --surface: #ffffff;
+  --surface-subtle: #f8fafc;
+  --foreground: #0f172a;
+
+  /* Borders: refined cool neutral palette with crisp definition against 85% canvas */
+  --border: #cbd5e1;
+  --border-strong: #94a3b8;
+  --border-subtle: #e2e8f0;
+
+  /* Brand Amber/Gold */
+  --primary: #f5a623;
+  --primary-hover: #e89918;
+  --primary-active: #d98b0f;
+  --primary-focus: rgba(245, 166, 35, 0.25);
+
+  /* Unified Apple-like Motion Tokens (design-skill.md §47-§48) */
+  --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-micro: 120ms;
+  --duration-standard: 200ms;
+  --duration-panel: 240ms;
+}
+
+html, body {
+  background-color: #DFE4EA;
+  color: #0f172a;
+  font-family: var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100%;
+}
+
+::selection {
+  background-color: #fde68a;
+  color: #0f172a;
+}
+
+/* Number display polish */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Tactile elevation & micro-depth */
+.shadow-card {
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 8px 20px -3px rgba(15, 23, 42, 0.04);
+}
+
+.shadow-control {
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+}
+
+.shadow-control-hover {
+  box-shadow: 0 2px 4px 0 rgba(15, 23, 42, 0.06);
+}
+
+/* ─── Apple-Grade Motion System (Compositor-Only: transform & opacity) ── */
+
+/* Subtle vertical emergence (6px travel: calm, grounded, fast) */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scale entrance for panels and popovers */
+@keyframes panel-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Modal entrance */
+@keyframes modal-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Dignified checkmark entrance (no bounce, smooth fluid scale-in) */
+@keyframes check-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.90);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Success bloom: single subtle 1-time pulse on booking confirmation */
+@keyframes success-bloom {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+/* Subtle primary button hover shimmer */
+@keyframes shimmer-slide {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* Continuous background signals (only active on capable devices) */
+@keyframes dash-travel {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -120; }
+}
+
+/* ─── Motion Utility Classes ─────────────────────────────────────────── */
+
+.anim-fade-up {
+  animation: fade-up 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-fade-in-scale {
+  animation: panel-zoom-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-check-pop {
+  animation: check-appear 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-dash-flow {
+  animation: dash-travel 14s linear infinite;
+}
+
+.popover-enter {
+  animation: panel-zoom-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top right;
+}
+
+.modal-enter {
+  animation: modal-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: center center;
+}
+
+/* Page & Step Transition: unified subtle vertical crossfade */
+.page-enter {
+  animation: fade-up 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Tightly compressed staggered delays (max 120ms to preserve instant interaction) */
+.delay-0   { animation-delay:   0ms; }
+.delay-40  { animation-delay:  40ms; }
+.delay-75  { animation-delay:  60ms; }
+.delay-80  { animation-delay:  80ms; }
+.delay-100 { animation-delay:  80ms; }
+.delay-120 { animation-delay: 120ms; }
+.delay-150 { animation-delay: 120ms; }
+.delay-200 { animation-delay: 140ms; }
+.delay-250 { animation-delay: 160ms; }
+.delay-300 { animation-delay: 180ms; }
+.delay-400 { animation-delay: 200ms; }
+.delay-500 { animation-delay: 220ms; }
+
+/* ─── Background Canvas Texture ──────────────────────────────────────── */
+
+/* Visible technical dot grid — calibrated contrast against #DFE4EA */
+.bg-canvas-grid {
+  background-image: radial-gradient(circle, rgba(100, 116, 139, 0.25) 1.25px, transparent 1.25px);
+  background-size: 32px 32px;
+}
+
+/* Fine diagonal hairlines */
+.bg-canvas-lines {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 38px,
+    rgba(148,163,184,0.09) 38px,
+    rgba(148,163,184,0.09) 39px
+  );
+}
+
+/* Gold ambient orb */
+.bg-glow-amber {
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(245, 166, 35, 0.12) 0%,
+    transparent 70%);
+}
+
+.bg-glow-amber-sm {
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(245, 166, 35, 0.08) 0%,
+    transparent 65%);
+}
+
+/* Emerald glow — confirmation success */
+.bg-glow-emerald {
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(16, 185, 129, 0.09) 0%,
+    transparent 65%);
+}
+
+/* ─── Interactive Surface Polish (Touch-Safe & Fluid) ───────────────── */
+
+/* Slot button — tactile press */
+.slot-btn {
+  transition:
+    transform        100ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow       120ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 120ms ease,
+    border-color     120ms ease;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Only apply hover lifts on pointer devices with true hover capability */
+@media (hover: hover) and (pointer: fine) {
+  .slot-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+.slot-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Card hover lift (touch-safe) */
+.card-lift {
+  transition:
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform  180ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, box-shadow;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.05);
+  }
+}
+
+/* Date button subtle press */
+.date-btn {
+  transition:
+    transform        100ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 120ms ease,
+    border-color     120ms ease,
+    box-shadow       120ms ease;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .date-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+.date-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Primary CTA shimmer (subtle and pointer-only) */
+.btn-primary-shimmer {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform        100ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 150ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary-shimmer:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  .btn-primary-shimmer:hover::after {
+    animation: shimmer-slide 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+.btn-primary-shimmer:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-primary-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255,255,255,0.20) 50%,
+    transparent 65%
+  );
+  background-size: 200% 100%;
+  background-position: 200% center;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Confirmation success bloom (1-time gentle bloom, non-repeating) */
+.success-bloom-ring {
+  animation: success-bloom 1.2s cubic-bezier(0.16, 1, 0.3, 1) 1 forwards;
+  pointer-events: none;
+}
+
+/* ─── Focus ring — accessible & on-brand ────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(245, 166, 35, 0.7);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ─── Accessibility: Full Reduced-Motion Compliance (design-skill.md §61) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .anim-fade-up,
+  .anim-fade-in-scale,
+  .anim-check-pop,
+  .anim-dash-flow,
+  .page-enter,
+  .popover-enter,
+  .modal-enter,
+  .success-bloom-ring {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .slot-btn,
+  .card-lift,
+  .date-btn,
+  .btn-primary-shimmer {
+    transition: none !important;
+    transform: none !important;
+  }
+}
