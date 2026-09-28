@@ -159,7 +159,8 @@ export class BookingService {
       const availabilityResult = await availabilityService.getAvailableSlots(
         request.parentLocalDate,
         request.parentTimezone,
-        request.trialDurationMinutes
+        request.trialDurationMinutes,
+        request.parentLocalTime
       );
 
       // Find if the requested time matches any available slot

@@ -17,6 +17,13 @@ export interface AvailabilityResult {
     parentTimezone: string;
     trialDurationMinutes: number;
     slots: AvailableSlot[];
+    /**
+     * If a preferredStartTime was requested, indicates whether it is available.
+     * - AvailableSlot if at least one eligible mentor can handle the exact 30-min interval.
+     * - null if no eligible mentors can handle it (outside hours, at capacity, or conflicts).
+     * - undefined if no preferredStartTime was requested.
+     */
+    preferredSlot?: AvailableSlot | null;
 }
 /**
  * Availability Engine
@@ -43,7 +50,7 @@ export declare class AvailabilityService {
      * @param trialDurationMinutes - Duration of trial class in minutes (default: 30)
      * @returns Availability result with slots and eligible mentor IDs
      */
-    getAvailableSlots(parentDate: string, parentTimezone: string, trialDurationMinutes?: number): Promise<AvailabilityResult>;
+    getAvailableSlots(parentDate: string, parentTimezone: string, trialDurationMinutes?: number, preferredStartTime?: string): Promise<AvailabilityResult>;
     /**
      * Generate candidate time slots based on mentor working hours.
      *
@@ -91,5 +98,10 @@ export declare class AvailabilityService {
      * Validate trial duration.
      */
     private validateDuration;
+    /**
+     * Normalizes arbitrary valid local time strings (e.g. "10:15", "10:15 AM", "14:30")
+     * into canonical 24-hour "HH:MM" format.
+     */
+    private normalizeTimeTo24h;
 }
 export declare const availabilityService: AvailabilityService;

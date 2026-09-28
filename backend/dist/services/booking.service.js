@@ -98,7 +98,7 @@ export class BookingService {
             const endDate = new Date(startDate.getTime() + request.trialDurationMinutes * 60 * 1000);
             const endInstant = endDate.toISOString();
             // Step 4: Revalidate availability (database is final authority)
-            const availabilityResult = await availabilityService.getAvailableSlots(request.parentLocalDate, request.parentTimezone, request.trialDurationMinutes);
+            const availabilityResult = await availabilityService.getAvailableSlots(request.parentLocalDate, request.parentTimezone, request.trialDurationMinutes, request.parentLocalTime);
             // Find if the requested time matches any available slot
             // We look for slots that start at the same time or overlap
             let eligibleMentorIds = [];

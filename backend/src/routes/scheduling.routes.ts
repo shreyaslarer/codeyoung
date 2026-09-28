@@ -18,7 +18,7 @@ const router = Router();
  */
 router.get('/availability', async (req: Request, res: Response) => {
   try {
-    const { parentDate, parentTimezone, trialDurationMinutes } = req.query;
+    const { parentDate, parentTimezone, trialDurationMinutes, preferredStartTime } = req.query;
 
     // Validate required parameters
     if (!parentDate || typeof parentDate !== 'string') {
@@ -36,6 +36,15 @@ router.get('/availability', async (req: Request, res: Response) => {
         title: 'Invalid Parameter',
         status: 400,
         detail: 'parentTimezone is required and must be a valid IANA timezone identifier.',
+      });
+    }
+
+    if (preferredStartTime !== undefined && typeof preferredStartTime !== 'string') {
+      return res.status(400).json({
+        type: 'https://codeyoung.dev/problems/invalid-parameter',
+        title: 'Invalid Parameter',
+        status: 400,
+        detail: 'preferredStartTime must be a string.',
       });
     }
 
@@ -66,7 +75,8 @@ router.get('/availability', async (req: Request, res: Response) => {
     const result = await availabilityService.getAvailableSlots(
       parentDate,
       parentTimezone,
-      duration
+      duration,
+      typeof preferredStartTime === 'string' ? preferredStartTime : undefined
     );
 
     res.status(200).json(result);
@@ -75,7 +85,9 @@ router.get('/availability', async (req: Request, res: Response) => {
       // Validation errors from service layer
       if (error.message.includes('timezone') || 
           error.message.includes('date') || 
-          error.message.includes('duration')) {
+          error.message.includes('duration') ||
+          error.message.includes('time') ||
+          error.message.includes('format')) {
         return res.status(400).json({
           type: 'https://codeyoung.dev/problems/validation-error',
           title: 'Validation Error',
@@ -435,6 +447,7 @@ router.get('/dashboard/stats', async (req: Request, res: Response) => {
         },
         slotIst,
         status: b.status === 'CONFIRMED' ? 'Confirmed' : b.status,
+        classUrl: b.classUrl,
       };
     });
 

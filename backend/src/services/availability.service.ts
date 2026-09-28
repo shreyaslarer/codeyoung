@@ -4,6 +4,7 @@ import { IMentor } from '../models/mentor.schema.js';
 import {
   validateTimezone,
   utcInstantToLocalDateTime,
+  localDateTimeToUtcInstant,
   getLocalDateForInstant,
   doIntervalsOverlap,
   getLocalDayBoundaries,
@@ -35,6 +36,13 @@ export interface AvailabilityResult {
   parentTimezone: string;
   trialDurationMinutes: number;
   slots: AvailableSlot[];
+  /**
+   * If a preferredStartTime was requested, indicates whether it is available.
+   * - AvailableSlot if at least one eligible mentor can handle the exact 30-min interval.
+   * - null if no eligible mentors can handle it (outside hours, at capacity, or conflicts).
+   * - undefined if no preferredStartTime was requested.
+   */
+  preferredSlot?: AvailableSlot | null;
 }
 
 /**
@@ -65,7 +73,8 @@ export class AvailabilityService {
   async getAvailableSlots(
     parentDate: string,
     parentTimezone: string,
-    trialDurationMinutes: number = DEFAULT_TRIAL_DURATION_MINUTES
+    trialDurationMinutes: number = DEFAULT_TRIAL_DURATION_MINUTES,
+    preferredStartTime?: string
   ): Promise<AvailabilityResult> {
     // Validate inputs
     this.validateDate(parentDate);
@@ -82,6 +91,7 @@ export class AvailabilityService {
         parentTimezone,
         trialDurationMinutes,
         slots: [],
+        ...(preferredStartTime !== undefined ? { preferredSlot: null } : {}),
       };
     }
 
@@ -92,6 +102,39 @@ export class AvailabilityService {
       trialDurationMinutes,
       activeMentors
     );
+
+    let preferredStartInstant: string | undefined;
+
+    // If a preferred start time is provided, evaluate that exact 30-minute interval
+    if (preferredStartTime) {
+      const normalizedPreferredTime = this.normalizeTimeTo24h(preferredStartTime);
+      try {
+        const prefStart = localDateTimeToUtcInstant(
+          parentDate,
+          normalizedPreferredTime,
+          parentTimezone
+        );
+        const prefInstant = Temporal.Instant.from(prefStart);
+        const prefEndInstant = prefInstant.add({ minutes: trialDurationMinutes }).toString();
+
+        // Check if this slot falls on the parent's requested date in parentTimezone
+        const slotDateInParentTz = getLocalDateForInstant(prefStart, parentTimezone);
+        if (slotDateInParentTz === parentDate) {
+          preferredStartInstant = prefStart;
+          if (!candidateSlots.has(prefStart)) {
+            candidateSlots.set(prefStart, {
+              startInstant: prefStart,
+              endInstant: prefEndInstant,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `Skipping preferred slot ${parentDate} ${normalizedPreferredTime} in ${parentTimezone}:`,
+          error
+        );
+      }
+    }
 
     // ------------------------------------------------------------------
     // Bulk-load confirmed bookings for all active mentors that touch the
@@ -143,11 +186,17 @@ export class AvailabilityService {
       bookingsByMentor,
     );
 
+    // Check if the preferred start time is available
+    const preferredSlot = preferredStartInstant
+      ? (availableSlots.find(s => s.startInstant === preferredStartInstant) ?? null)
+      : (preferredStartTime !== undefined ? null : undefined);
+
     return {
       parentDate,
       parentTimezone,
       trialDurationMinutes,
       slots: availableSlots,
+      ...(preferredStartTime !== undefined ? { preferredSlot } : {}),
     };
   }
 
@@ -440,6 +489,46 @@ export class AvailabilityService {
         `Invalid trial duration: ${durationMinutes}. Maximum duration is 240 minutes.`
       );
     }
+  }
+
+  /**
+   * Normalizes arbitrary valid local time strings (e.g. "10:15", "10:15 AM", "14:30")
+   * into canonical 24-hour "HH:MM" format.
+   */
+  private normalizeTimeTo24h(timeStr: string): string {
+    const trimmed = timeStr.trim();
+
+    // 12-hour format: "10:15 AM", "2:30 pm", "12:00 PM"
+    const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) {
+      let hours = parseInt(match12[1], 10);
+      const minutes = match12[2];
+      const period = match12[3].toUpperCase();
+      if (hours < 1 || hours > 12) {
+        throw new Error(`Invalid hour in 12-hour format: ${hours}. Expected 1-12.`);
+      }
+      const minNum = parseInt(minutes, 10);
+      if (minNum < 0 || minNum > 59) {
+        throw new Error(`Invalid minute: ${minutes}. Expected 0-59.`);
+      }
+      if (period === 'AM' && hours === 12) hours = 0;
+      if (period === 'PM' && hours < 12) hours += 12;
+      return `${String(hours).padStart(2, '0')}:${minutes}`;
+    }
+
+    // 24-hour format: "10:15", "09:45", "14:30"
+    const match24 = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (match24) {
+      const hours = parseInt(match24[1], 10);
+      const minutes = match24[2];
+      const minNum = parseInt(minutes, 10);
+      if (hours < 0 || hours > 23 || minNum < 0 || minNum > 59) {
+        throw new Error(`Invalid time: ${timeStr}. Hours must be 0-23 and minutes 0-59.`);
+      }
+      return `${String(hours).padStart(2, '0')}:${minutes}`;
+    }
+
+    throw new Error(`Invalid time format: ${timeStr}. Expected HH:MM or HH:MM AM/PM.`);
   }
 }
 

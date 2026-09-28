@@ -16,7 +16,7 @@ const router = Router();
  */
 router.get('/availability', async (req, res) => {
     try {
-        const { parentDate, parentTimezone, trialDurationMinutes } = req.query;
+        const { parentDate, parentTimezone, trialDurationMinutes, preferredStartTime } = req.query;
         // Validate required parameters
         if (!parentDate || typeof parentDate !== 'string') {
             return res.status(400).json({
@@ -32,6 +32,14 @@ router.get('/availability', async (req, res) => {
                 title: 'Invalid Parameter',
                 status: 400,
                 detail: 'parentTimezone is required and must be a valid IANA timezone identifier.',
+            });
+        }
+        if (preferredStartTime !== undefined && typeof preferredStartTime !== 'string') {
+            return res.status(400).json({
+                type: 'https://codeyoung.dev/problems/invalid-parameter',
+                title: 'Invalid Parameter',
+                status: 400,
+                detail: 'preferredStartTime must be a string.',
             });
         }
         // Parse and validate optional duration
@@ -56,7 +64,7 @@ router.get('/availability', async (req, res) => {
             }
         }
         // Call availability service (it handles validation internally)
-        const result = await availabilityService.getAvailableSlots(parentDate, parentTimezone, duration);
+        const result = await availabilityService.getAvailableSlots(parentDate, parentTimezone, duration, typeof preferredStartTime === 'string' ? preferredStartTime : undefined);
         res.status(200).json(result);
     }
     catch (error) {
@@ -64,7 +72,9 @@ router.get('/availability', async (req, res) => {
             // Validation errors from service layer
             if (error.message.includes('timezone') ||
                 error.message.includes('date') ||
-                error.message.includes('duration')) {
+                error.message.includes('duration') ||
+                error.message.includes('time') ||
+                error.message.includes('format')) {
                 return res.status(400).json({
                     type: 'https://codeyoung.dev/problems/validation-error',
                     title: 'Validation Error',
@@ -386,6 +396,7 @@ router.get('/dashboard/stats', async (req, res) => {
                 },
                 slotIst,
                 status: b.status === 'CONFIRMED' ? 'Confirmed' : b.status,
+                classUrl: b.classUrl,
             };
         });
         res.json({

@@ -1,6 +1,6 @@
 import { mentorRepository } from '../repositories/mentor.repository.js';
 import { bookingRepository } from '../models/booking.repository.js';
-import { validateTimezone, utcInstantToLocalDateTime, getLocalDateForInstant, doIntervalsOverlap, getLocalDayBoundaries, } from '../utils/temporal.utils.js';
+import { validateTimezone, utcInstantToLocalDateTime, localDateTimeToUtcInstant, getLocalDateForInstant, doIntervalsOverlap, getLocalDayBoundaries, } from '../utils/temporal.utils.js';
 import { Temporal } from '@js-temporal/polyfill';
 const DEFAULT_TRIAL_DURATION_MINUTES = 30;
 const DEFAULT_SLOT_INTERVAL_MINUTES = 30;
@@ -31,7 +31,7 @@ export class AvailabilityService {
      * @param trialDurationMinutes - Duration of trial class in minutes (default: 30)
      * @returns Availability result with slots and eligible mentor IDs
      */
-    async getAvailableSlots(parentDate, parentTimezone, trialDurationMinutes = DEFAULT_TRIAL_DURATION_MINUTES) {
+    async getAvailableSlots(parentDate, parentTimezone, trialDurationMinutes = DEFAULT_TRIAL_DURATION_MINUTES, preferredStartTime) {
         // Validate inputs
         this.validateDate(parentDate);
         validateTimezone(parentTimezone, 'parentTimezone');
@@ -45,10 +45,35 @@ export class AvailabilityService {
                 parentTimezone,
                 trialDurationMinutes,
                 slots: [],
+                ...(preferredStartTime !== undefined ? { preferredSlot: null } : {}),
             };
         }
         // Generate candidate slots for the parent's requested date
         const candidateSlots = this.generateCandidateSlots(parentDate, parentTimezone, trialDurationMinutes, activeMentors);
+        let preferredStartInstant;
+        // If a preferred start time is provided, evaluate that exact 30-minute interval
+        if (preferredStartTime) {
+            const normalizedPreferredTime = this.normalizeTimeTo24h(preferredStartTime);
+            try {
+                const prefStart = localDateTimeToUtcInstant(parentDate, normalizedPreferredTime, parentTimezone);
+                const prefInstant = Temporal.Instant.from(prefStart);
+                const prefEndInstant = prefInstant.add({ minutes: trialDurationMinutes }).toString();
+                // Check if this slot falls on the parent's requested date in parentTimezone
+                const slotDateInParentTz = getLocalDateForInstant(prefStart, parentTimezone);
+                if (slotDateInParentTz === parentDate) {
+                    preferredStartInstant = prefStart;
+                    if (!candidateSlots.has(prefStart)) {
+                        candidateSlots.set(prefStart, {
+                            startInstant: prefStart,
+                            endInstant: prefEndInstant,
+                        });
+                    }
+                }
+            }
+            catch (error) {
+                console.warn(`Skipping preferred slot ${parentDate} ${normalizedPreferredTime} in ${parentTimezone}:`, error);
+            }
+        }
         // ------------------------------------------------------------------
         // Bulk-load confirmed bookings for all active mentors that touch the
         // parent-requested day.  We widen the UTC window by ±1 day to safely
@@ -80,11 +105,16 @@ export class AvailabilityService {
         }
         // Filter slots by checking which mentors can handle each slot
         const availableSlots = this.filterSlotsByMentorAvailability(candidateSlots, parentDate, parentTimezone, activeMentors, bookingsByMentor);
+        // Check if the preferred start time is available
+        const preferredSlot = preferredStartInstant
+            ? (availableSlots.find(s => s.startInstant === preferredStartInstant) ?? null)
+            : (preferredStartTime !== undefined ? null : undefined);
         return {
             parentDate,
             parentTimezone,
             trialDurationMinutes,
             slots: availableSlots,
+            ...(preferredStartTime !== undefined ? { preferredSlot } : {}),
         };
     }
     /**
@@ -286,6 +316,44 @@ export class AvailabilityService {
         if (durationMinutes > 240) {
             throw new Error(`Invalid trial duration: ${durationMinutes}. Maximum duration is 240 minutes.`);
         }
+    }
+    /**
+     * Normalizes arbitrary valid local time strings (e.g. "10:15", "10:15 AM", "14:30")
+     * into canonical 24-hour "HH:MM" format.
+     */
+    normalizeTimeTo24h(timeStr) {
+        const trimmed = timeStr.trim();
+        // 12-hour format: "10:15 AM", "2:30 pm", "12:00 PM"
+        const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+        if (match12) {
+            let hours = parseInt(match12[1], 10);
+            const minutes = match12[2];
+            const period = match12[3].toUpperCase();
+            if (hours < 1 || hours > 12) {
+                throw new Error(`Invalid hour in 12-hour format: ${hours}. Expected 1-12.`);
+            }
+            const minNum = parseInt(minutes, 10);
+            if (minNum < 0 || minNum > 59) {
+                throw new Error(`Invalid minute: ${minutes}. Expected 0-59.`);
+            }
+            if (period === 'AM' && hours === 12)
+                hours = 0;
+            if (period === 'PM' && hours < 12)
+                hours += 12;
+            return `${String(hours).padStart(2, '0')}:${minutes}`;
+        }
+        // 24-hour format: "10:15", "09:45", "14:30"
+        const match24 = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+        if (match24) {
+            const hours = parseInt(match24[1], 10);
+            const minutes = match24[2];
+            const minNum = parseInt(minutes, 10);
+            if (hours < 0 || hours > 23 || minNum < 0 || minNum > 59) {
+                throw new Error(`Invalid time: ${timeStr}. Hours must be 0-23 and minutes 0-59.`);
+            }
+            return `${String(hours).padStart(2, '0')}:${minutes}`;
+        }
+        throw new Error(`Invalid time format: ${timeStr}. Expected HH:MM or HH:MM AM/PM.`);
     }
 }
 export const availabilityService = new AvailabilityService();
