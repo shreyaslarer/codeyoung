@@ -60,7 +60,7 @@ export function isValidIanaTimezone(timezone: string): boolean {
     // Using undefined for locale lets the browser use its default
     new Intl.DateTimeFormat(undefined, { timeZone: timezone });
     return true;
-  } catch (error) {
+  } catch {
     // Invalid timezone throws RangeError
     return false;
   }

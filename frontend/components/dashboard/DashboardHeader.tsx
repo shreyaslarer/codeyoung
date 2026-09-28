@@ -1,19 +1,23 @@
 "use client";
 
 import React from "react";
-import { Globe, RotateCw, User, Menu, ArrowLeft, Terminal, Database } from "lucide-react";
+import { Globe, RotateCw, User, Menu, ArrowLeft, Database } from "lucide-react";
 import Link from "next/link";
 
 interface DashboardHeaderProps {
   onRefresh: () => void;
   isRefreshing?: boolean;
   onOpenMobileMenu?: () => void;
+  source?: "mongodb_live" | "local_cache";
+  isConnected?: boolean;
 }
 
 export function DashboardHeader({
   onRefresh,
   isRefreshing = false,
   onOpenMobileMenu,
+  source = "mongodb_live",
+  isConnected = true,
 }: DashboardHeaderProps) {
   return (
     <header className="fixed top-0 left-0 lg:left-64 right-0 h-16 bg-[#DFE4EA]/90 backdrop-blur-md z-40 flex items-center justify-between px-4 lg:px-6 border-b border-[#CBD5E1] transition-colors">
@@ -55,9 +59,11 @@ export function DashboardHeader({
 
         {/* Database Status Pill */}
         <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/95 text-slate-800 text-xs font-semibold border border-[#CBD5E1] shadow-control">
-          <Database className="w-3.5 h-3.5 text-[#00A86B]" />
-          <span className="h-1.5 w-1.5 rounded-full bg-[#00A86B] animate-pulse" />
-          <span className="font-mono text-[11px] text-slate-700">MongoDB Live</span>
+          <Database className={`w-3.5 h-3.5 ${isConnected && source === "mongodb_live" ? "text-[#00A86B]" : "text-amber-600"}`} />
+          <span className={`h-1.5 w-1.5 rounded-full ${isConnected && source === "mongodb_live" ? "bg-[#00A86B] animate-pulse" : "bg-amber-500"}`} />
+          <span className="font-mono text-[11px] text-slate-700">
+            {isConnected && source === "mongodb_live" ? "MongoDB Live" : "Local Snapshot"}
+          </span>
         </div>
 
         {/* Refresh Action Button */}

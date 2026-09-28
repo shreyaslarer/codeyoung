@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, AlertCircle, Shield, Cpu, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 import { DashboardInvariants } from "@/types/dashboard.types";
 
 interface InvariantStatusStripProps {

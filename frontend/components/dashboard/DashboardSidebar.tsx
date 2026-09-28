@@ -3,7 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { LayoutGrid, Users, Calendar, ArrowLeft, X, LogOut, Terminal, Activity, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LayoutGrid, Users, Calendar, ArrowLeft, X, LogOut, Terminal } from "lucide-react";
 import { DashboardNavTab } from "@/types/dashboard.types";
 
 interface DashboardSidebarProps {
@@ -19,6 +20,7 @@ export function DashboardSidebar({
   isOpenMobile = false,
   onCloseMobile,
 }: DashboardSidebarProps) {
+  const router = useRouter();
   const navItems: Array<{
     id: DashboardNavTab;
     label: string;
@@ -144,7 +146,7 @@ export function DashboardSidebar({
                 }
                 if (typeof window !== "undefined") {
                   localStorage.removeItem("codeyoung_admin_session");
-                  window.location.href = "/admin";
+                  router.push("/admin");
                 }
               }}
               className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"

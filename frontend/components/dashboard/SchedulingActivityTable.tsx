@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Download, Globe, Search, Copy, Check, Code, X, ExternalLink } from "lucide-react";
+import { Download, Globe, Search, Copy, Check, Code, X } from "lucide-react";
 import { BookingActivityItem } from "@/types/dashboard.types";
 
 interface SchedulingActivityTableProps {

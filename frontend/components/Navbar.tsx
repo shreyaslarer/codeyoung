@@ -37,15 +37,28 @@ export function Navbar({ timezone, onOpenTimezoneModal, onLogoClick }: NavbarPro
 
         {/* Header Right Controls */}
         <div className="flex items-center gap-3 sm:gap-4">
-          {/* Auto-detected timezone indicator */}
-          <div
-            aria-label={`Current timezone: ${timezone.label} (Auto-detected)`}
-            className="flex items-center gap-1.5 text-slate-700 bg-white/95 px-3 py-1.5 rounded-lg border border-[#CBD5E1] shadow-control text-xs font-semibold select-none transition-shadow hover:shadow-control-hover"
-          >
-            <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <span className="text-xs sm:text-sm font-semibold text-slate-900">{timezone.label}</span>
-            <span className="text-xs text-[#00A86B] font-semibold hidden sm:inline">· Auto-detected</span>
-          </div>
+          {/* Auto-detected timezone indicator & selector trigger */}
+          {onOpenTimezoneModal ? (
+            <button
+              type="button"
+              onClick={onOpenTimezoneModal}
+              aria-label={`Current timezone: ${timezone.label} (Auto-detected). Click to change timezone.`}
+              className="flex items-center gap-1.5 text-slate-700 bg-white/95 px-3 py-1.5 rounded-lg border border-[#CBD5E1] shadow-control text-xs font-semibold select-none transition-all hover:shadow-control-hover hover:border-[#D98B0F] cursor-pointer"
+            >
+              <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="text-xs sm:text-sm font-semibold text-slate-900">{timezone.label}</span>
+              <span className="text-xs text-[#00A86B] font-semibold hidden sm:inline">· Auto-detected</span>
+            </button>
+          ) : (
+            <div
+              aria-label={`Current timezone: ${timezone.label} (Auto-detected)`}
+              className="flex items-center gap-1.5 text-slate-700 bg-white/95 px-3 py-1.5 rounded-lg border border-[#CBD5E1] shadow-control text-xs font-semibold select-none transition-shadow hover:shadow-control-hover"
+            >
+              <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="text-xs sm:text-sm font-semibold text-slate-900">{timezone.label}</span>
+              <span className="text-xs text-[#00A86B] font-semibold hidden sm:inline">· Auto-detected</span>
+            </div>
+          )}
 
           {/* Internal Dashboard Link */}
           <Link

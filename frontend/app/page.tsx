@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Globe } from "lucide-react";
 import {
   Navbar,
@@ -16,16 +16,18 @@ import {
   ConfirmedAppointmentCard,
   PostBookingActions,
   PageBackground,
+  TimezoneModal,
 } from "@/components";
 import { useBookingFlow } from "@/hooks/use-booking-flow";
 
 export default function BookingPage() {
+  const [isTimezoneModalOpen, setIsTimezoneModalOpen] = useState(false);
+
   const {
     step,
     timezone,
     selectedDate,
     selectedTime,
-    selectedSlot,
     parentName,
     parentEmail,
     dateItems,
@@ -41,6 +43,7 @@ export default function BookingPage() {
     preferredTime,
     preferredSlotStatus,
     preferredSlotMessage,
+    setTimezone,
     setParentName,
     setParentEmail,
     goToStep,
@@ -61,6 +64,7 @@ export default function BookingPage() {
       <Navbar
         timezone={timezone}
         onLogoClick={() => goToStep(1)}
+        onOpenTimezoneModal={() => setIsTimezoneModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -91,10 +95,30 @@ export default function BookingPage() {
               <section className="lg:col-span-5 space-y-6">
                 {/* 1. Auto-detected Timezone */}
                 <div>
-                  <label className="text-xs font-bold text-slate-900 tracking-wide mb-1.5 block">
-                    Your timezone
-                  </label>
-                  <div className="live-ring w-full flex items-center justify-between px-4 py-3 rounded-xl border border-[#CBD5E1] bg-white shadow-card text-left select-none card-lift">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-900 tracking-wide block">
+                      Your timezone
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsTimezoneModalOpen(true)}
+                      className="text-[11px] font-semibold text-[#D98B0F] hover:underline cursor-pointer focus:outline-none"
+                    >
+                      Change
+                    </button>
+                  </div>
+                  <div
+                    onClick={() => setIsTimezoneModalOpen(true)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setIsTimezoneModalOpen(true);
+                      }
+                    }}
+                    className="live-ring w-full flex items-center justify-between px-4 py-3 rounded-xl border border-[#CBD5E1] bg-white shadow-card text-left select-none card-lift cursor-pointer hover:border-[#D98B0F] transition-all"
+                  >
                     <div className="flex items-center gap-2.5 truncate">
                       <Globe className="w-4 h-4 text-[#D98B0F] shrink-0" />
                       <span className="text-sm font-semibold text-[#0F172A] truncate">
@@ -106,7 +130,7 @@ export default function BookingPage() {
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 mt-1.5 leading-normal">
-                    Times are automatically shown in your detected local timezone.
+                    Times are automatically shown in your detected local timezone. Click to change.
                   </p>
                 </div>
 
@@ -261,6 +285,14 @@ export default function BookingPage() {
       <div className="relative" style={{ zIndex: 1 }}>
         <Footer />
       </div>
+
+      {/* Searchable Timezone Selector Modal */}
+      <TimezoneModal
+        isOpen={isTimezoneModalOpen}
+        onClose={() => setIsTimezoneModalOpen(false)}
+        selectedTimezone={timezone}
+        onSelectTimezone={setTimezone}
+      />
     </div>
   );
 }

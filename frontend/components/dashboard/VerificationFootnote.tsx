@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck, Cpu } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { DashboardVerificationSummary } from "@/types/dashboard.types";
 
 interface VerificationFootnoteProps {

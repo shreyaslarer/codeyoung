@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Calendar as CalendarIcon, Filter, Layers, Users, Calendar, ShieldCheck, Terminal, ExternalLink } from "lucide-react";
+import { Calendar as CalendarIcon, Filter, ExternalLink } from "lucide-react";
 import {
   DashboardSidebar,
   DashboardHeader,
@@ -51,7 +51,6 @@ export default function DashboardPage() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [secondsAgo, setSecondsAgo] = useState(0);
   const [source, setSource] = useState<"mongodb_live" | "local_cache">("mongodb_live");
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const [selectedDate, setSelectedDate] = useState<string>("2026-09-29");
@@ -68,9 +67,8 @@ export default function DashboardPage() {
   const [selectedMentorForModal, setSelectedMentorForModal] = useState<MentorFleetItem | MentorAllocationItem | AvailableMentorQueueItem | null>(null);
 
   // Fetch live stats from /api/dashboard/stats
-  const fetchDashboardStats = useCallback(
-    async (isManual = false, overrideDate?: string) => {
-      if (isManual) setIsRefreshing(true);
+  const loadDashboardStats = useCallback(
+    async (overrideDate?: string) => {
       try {
         const queryDate = overrideDate !== undefined ? overrideDate : selectedDate;
         const queryString = queryDate ? `?date=${queryDate}` : "";
@@ -108,7 +106,6 @@ export default function DashboardPage() {
           if (data.selectedDate && overrideDate === undefined) {
             setSelectedDate(data.selectedDate);
           }
-          setSecondsAgo(0);
           setIsConnected(true);
           setIsInitialLoad(false);
         } else {
@@ -126,33 +123,40 @@ export default function DashboardPage() {
         setInvariants((prev) => prev ?? DEFAULT_INVARIANTS);
         setSummary((prev) => prev ?? VERIFICATION_SUMMARY);
         setIsInitialLoad(false);
-      } finally {
-        if (isManual) setIsRefreshing(false);
       }
     },
     [selectedDate]
   );
 
-  // Polling setup: initial fetch + 5-second polling interval + clock ticker
+  // Polling setup: initial fetch + 5-second polling interval
   useEffect(() => {
-    fetchDashboardStats(false);
+    let cancelled = false;
+
+    async function initialFetch() {
+      if (!cancelled) {
+        await loadDashboardStats();
+      }
+    }
+
+    initialFetch();
 
     const pollTimer = setInterval(() => {
-      fetchDashboardStats(false);
+      loadDashboardStats();
     }, 5000);
 
-    const clockTimer = setInterval(() => {
-      setSecondsAgo((prev) => prev + 1);
-    }, 1000);
-
     return () => {
+      cancelled = true;
       clearInterval(pollTimer);
-      clearInterval(clockTimer);
     };
-  }, [fetchDashboardStats]);
+  }, [loadDashboardStats]);
 
   const handleManualRefresh = async () => {
-    await fetchDashboardStats(true);
+    setIsRefreshing(true);
+    try {
+      await loadDashboardStats();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const formatDisplayDate = (d: string) => {
@@ -248,6 +252,8 @@ export default function DashboardPage() {
           onRefresh={handleManualRefresh}
           isRefreshing={isRefreshing}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          source={source}
+          isConnected={isConnected}
         />
 
         {/* Main Body */}
@@ -330,7 +336,7 @@ export default function DashboardPage() {
                               type="button"
                               onClick={() => {
                                 setSelectedDate(dTab.date);
-                                fetchDashboardStats(true, dTab.date);
+                                loadDashboardStats(dTab.date);
                               }}
                               className={`slot-btn px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                                 selectedDate === dTab.date

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { autoDetectTimezone, isValidIanaTimezone, detectBrowserTimezone } from '@/lib/timezone-detection';
 
@@ -304,7 +305,6 @@ describe('Timezone Detection', () => {
       global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
 
       // Mock browser returning invalid timezone
-      const originalDateTimeFormat = Intl.DateTimeFormat;
       const originalResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
       
       try {

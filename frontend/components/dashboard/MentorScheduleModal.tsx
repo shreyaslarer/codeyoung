@@ -7,7 +7,6 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Calendar,
   Clock,
   User,
   Mail,

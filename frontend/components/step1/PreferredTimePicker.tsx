@@ -46,12 +46,14 @@ export function PreferredTimePicker({
   statusMessage = null,
 }: PreferredTimePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [prevInitialTime, setPrevInitialTime] = useState<string | null>(initialTime);
   const [preferredTime, setPreferredTime] = useState<string | null>(initialTime);
 
   // Sync state if initialTime changes from parent
-  useEffect(() => {
+  if (initialTime !== prevInitialTime) {
+    setPrevInitialTime(initialTime);
     setPreferredTime(initialTime ?? null);
-  }, [initialTime]);
+  }
 
   const initialParsed = parseTime(initialTime);
   const [selectedHour, setSelectedHour] = useState(initialParsed.h);

@@ -4,6 +4,7 @@ import React from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { BookingConflictNotice } from "./BookingConflictNotice";
 import type { BookingConflictType } from "@/types/api.types";
+import { validateParentInput } from "@/lib/validation";
 
 interface ParentDetailsFormProps {
   parentName: string;
@@ -42,15 +43,9 @@ export function ParentDetailsForm({
     e.preventDefault();
     setLocalError(null);
 
-    const trimmedName = parentName.trim();
-    if (trimmedName.length < 2) {
-      setLocalError("Please enter a valid parent name with at least 2 characters.");
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(parentEmail.trim())) {
-      setLocalError("Please enter a valid email address.");
+    const validation = validateParentInput(parentName, parentEmail);
+    if (!validation.isValid) {
+      setLocalError(validation.error ?? "Please check your information.");
       return;
     }
 

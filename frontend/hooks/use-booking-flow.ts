@@ -25,8 +25,8 @@ export function useBookingFlow() {
   const [selectedDate, setSelectedDate] = useState<string>(DEFAULT_SELECTED_DATE);
   const [selectedTime, setSelectedTime] = useState<string>(DEFAULT_SELECTED_TIME);
   const [dayOffset, setDayOffset] = useState<number>(0);
-  const [parentName, setParentName] = useState<string>("Alex Johnson");
-  const [parentEmail, setParentEmail] = useState<string>("alex.johnson@example.com");
+  const [parentName, setParentName] = useState<string>("");
+  const [parentEmail, setParentEmail] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Typed conflict state — distinguished from generic errors so UI renders the
@@ -176,11 +176,14 @@ export function useBookingFlow() {
         setAvailableSlots(transformedSlots);
 
         // Auto-select first slot if current selection is invalid
-        if (transformedSlots.length > 0 && !transformedSlots.some(s => s.time === selectedTime)) {
-          setSelectedTime(transformedSlots[0].time);
-        } else if (transformedSlots.length === 0) {
-          setSelectedTime("");
-        }
+        setSelectedTime((prevTime) => {
+          if (transformedSlots.length > 0 && !transformedSlots.some((s) => s.time === prevTime)) {
+            return transformedSlots[0].time;
+          } else if (transformedSlots.length === 0) {
+            return "";
+          }
+          return prevTime;
+        });
       } catch (error) {
         if (cancelled) return;
 
@@ -311,7 +314,7 @@ export function useBookingFlow() {
             `No mentors are available at ${timeStr}. Please select an available slot above.`
           );
         }
-      } catch (err) {
+      } catch {
         setPreferredSlotStatus('UNAVAILABLE');
         setPreferredSlotMessage(
           `Unable to check availability for ${timeStr}. Please select an available slot.`

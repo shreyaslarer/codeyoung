@@ -6,27 +6,31 @@
  */
 
 import { API_CONFIG } from './api-config';
+import {
+  ApiError,
+  ValidationError,
+  NotFoundError,
+  ConflictError,
+  ServerError,
+  NetworkError,
+} from '@/types/api.types';
 import type {
   GetAvailabilityRequest,
   GetAvailabilityResponse,
   CreateBookingRequest,
   BookingResponse,
   ProblemDetails,
-  ValidationError,
-  NotFoundError,
-  ConflictError,
-  ServerError,
-  NetworkError,
 } from '@/types/api.types';
 
 // Re-export error classes for convenience
 export {
+  ApiError,
   ValidationError,
   NotFoundError,
   ConflictError,
   ServerError,
   NetworkError,
-} from '@/types/api.types';
+};
 
 /**
  * Build query string from object
@@ -62,27 +66,18 @@ async function handleErrorResponse(response: Response): Promise<never> {
   const detail = problemDetails?.detail || `HTTP ${response.status} error`;
 
   switch (response.status) {
-    case 400: {
-      const { ValidationError } = await import('@/types/api.types');
+    case 400:
       throw new ValidationError(detail, problemDetails);
-    }
-    case 404: {
-      const { NotFoundError } = await import('@/types/api.types');
+    case 404:
       throw new NotFoundError(detail, problemDetails);
-    }
     case 409: {
-      const { ConflictError } = await import('@/types/api.types');
       const conflictType = problemDetails?.conflictType || 'SLOT_UNAVAILABLE';
       throw new ConflictError(detail, conflictType, problemDetails);
     }
-    case 500: {
-      const { ServerError } = await import('@/types/api.types');
+    case 500:
       throw new ServerError(detail, problemDetails);
-    }
-    default: {
-      const { ApiError } = await import('@/types/api.types');
+    default:
       throw new ApiError(detail, response.status, problemDetails);
-    }
   }
 }
 
@@ -131,7 +126,6 @@ export async function getAvailability(
     }
 
     // Wrap fetch/network errors
-    const { NetworkError } = await import('@/types/api.types');
     throw new NetworkError('Failed to fetch availability', error);
   }
 }
@@ -179,7 +173,6 @@ export async function createBooking(
     }
 
     // Wrap fetch/network errors
-    const { NetworkError } = await import('@/types/api.types');
     throw new NetworkError('Failed to create booking', error);
   }
 }

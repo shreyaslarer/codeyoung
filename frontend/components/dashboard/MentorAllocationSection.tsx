@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, Users, UserCheck } from "lucide-react";
+import { Check, UserCheck } from "lucide-react";
 import { MentorAllocationItem, AvailableMentorQueueItem } from "@/types/dashboard.types";
 
 interface MentorAllocationSectionProps {
