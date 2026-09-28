@@ -1,321 +1,345 @@
-# CodeYoung — Trial Class Scheduling
+# Codeyoung Trial-Class Booking System
 
-> **A production-style scheduling feature built for CodeYoung that turns a parent's local time preference into a validated booking, automatically selects an eligible mentor, and keeps the entire experience timezone-aware and conflict-safe.**
+> Production-oriented trial-class scheduling system focused on timezone correctness, automatic mentor allocation, capacity enforcement, and concurrency-safe booking.
 
----
+[![Frontend](https://img.shields.io/badge/Frontend-React-blue)](#technology-stack)
+[![Backend](https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-green)](#technology-stack)
+[![Language](https://img.shields.io/badge/Language-TypeScript-blue)](#technology-stack)
+[![Database](https://img.shields.io/badge/Database-MongoDB-brightgreen)](#technology-stack)
+[![Scheduling](https://img.shields.io/badge/Scheduling-IANA%20Timezones-purple)](#timezone-and-dst-correctness)
 
-## What is this?
+## Prototype
 
-This repository contains a **trial-class scheduling feature developed within CodeYoung**.
-
-The feature is built around a simple customer experience:
-
-> **The parent chooses the time. The system chooses the mentor.**
-
-What looks like a simple "pick a time and book" flow actually requires the system to solve several engineering problems at the same time:
-
-- Different users can be in different timezones.
-- Local date/time must be converted into an exact appointment instant.
-- Mentor working hours must be evaluated in the mentor's timezone.
-- Each mentor has a daily trial-class limit.
-- Multiple mentors may be able to conduct the same time slot.
-- Two parents may attempt to book the same limited resource simultaneously.
-- Availability shown to the browser can become stale before booking.
-- The parent should never have to understand any of this complexity.
-
-This project implements that scheduling flow end-to-end, including the **parent booking experience, backend scheduling domain, MongoDB persistence, automatic mentor allocation, booking conflict handling, confirmation experience, calendar actions, canonical class links, and mentor dashboard**.
+**Complete project prototype:**  
+[View the Codeyoung Trial-Class Booking System Prototype](https://drive.google.com/file/d/1gv5-xCCyO4xnB1QaqRDJS8fqktmNCdE8/view?usp=drivesdk)
 
 ---
 
-## Why this project is technically interesting
+## 1. Project Overview
 
-The difficult part of a scheduling product is not rendering a calendar.
+The Codeyoung Trial-Class Booking System is a customer-facing scheduling application for booking trial classes without requiring a parent to understand mentor schedules, timezone offsets, or internal capacity constraints.
 
-The difficult part is maintaining one consistent appointment when:
+The central product rule is:
 
-```text
-Parent local time
-        ↓
-IANA timezone
-        ↓
-Exact instant
-        ↓
-Mentor-local time
-        ↓
-Availability
-        ↓
-Mentor allocation
-        ↓
-Concurrent booking validation
-        ↓
-Persistent booking
-        ↓
-Confirmation / mentor view
-```
+> **The parent chooses WHEN. The system chooses WHO.**
 
-A booking can be correct from the parent's perspective and still be wrong from the mentor's perspective if the temporal model is incorrect.
+A parent selects a preferred date and time in their own timezone. The system determines whether an eligible mentor can conduct the class, automatically assigns a mentor, enforces the mentor's daily capacity, creates the booking, and communicates the appointment in the correct local time for each participant.
 
-Likewise, a slot can appear available in the UI and still become unavailable a few milliseconds later because another booking was created first.
+The engineering problem is therefore larger than rendering a calendar. The system must preserve scheduling invariants while translating between local wall-clock times and a single globally meaningful appointment instant.
 
-The implementation therefore treats **time, availability, allocation, and booking consistency as separate but connected domains**.
+### Core engineering concerns
+
+1. **Temporal correctness**
+2. **Availability computation**
+3. **Automatic resource allocation**
+4. **Concurrency and double-booking prevention**
+5. **Customer-friendly scheduling UX**
 
 ---
 
-# Feature at a Glance
+## 2. Assignment Requirements
 
-| Area | Implementation |
+The implementation is designed around the stated assignment requirements:
+
+| Requirement | System behavior |
 |---|---|
-| Product context | CodeYoung |
-| Feature | Trial-class scheduling |
-| Parent experience | Date → time → details → confirmation |
-| Timezone model | IANA timezone identifiers |
-| Time handling | Exact appointment instants |
-| Trial duration | 30 minutes |
-| Mentor pool | 10 production mentors |
-| Mentor selection | Automatic |
-| Allocation strategy | Least-booked eligible mentor + deterministic tie-break |
-| Mentor daily limit | 2 confirmed trials per mentor-local calendar day |
-| Availability | Backend-driven |
-| Booking authority | Backend + database |
-| Conflict response | HTTP 409 |
-| Duplicate protection | Idempotency-Key |
-| Persistence | MongoDB + Mongoose |
-| Backend | Node.js + Express + TypeScript |
-| Frontend | Next.js + React + TypeScript |
-| Styling | Tailwind CSS |
-| Icons | Lucide React |
-| Testing | Vitest / project test suite |
-| Mentor interface | Mentor dashboard |
-| Class link | Canonical booking class URL |
-| Calendar actions | Google Calendar + `.ics` |
-| Development documentation | Research, design, coding, prompt, transcript, setup |
+| React frontend | Customer-facing booking experience |
+| Node.js backend | API and scheduling domain |
+| TypeScript | Typed application code |
+| 10 mentors | Mentor pool |
+| ~20 parents/day | Low-volume booking workload |
+| Parent selects time | Parent controls preferred appointment time |
+| Automatic mentor assignment | Backend selects an eligible mentor |
+| Different timezones | IANA timezone-aware scheduling |
+| Local-time communication | Parent and mentor see their respective local times |
+| DST handling | Timezone rules are treated as scheduling logic |
+| Maximum 2 demos/mentor/day | Local-calendar-day capacity |
+| No availability | Explicit business-state handling |
+| Dummy class link | Generated booking/class URL |
+| Production-quality design | Validation, revalidation, idempotency, concurrency handling, testing and observability |
 
 ---
 
-# 1. The Product Problem
+## 3. Why This Is More Than a Calendar
 
-CodeYoung's trial-class journey needs to answer a deceptively difficult question:
+A basic calendar answers:
 
-> **"If a parent asks for a trial class at a particular local time, can the system safely provide that appointment, which mentor should handle it, and what exact time should everyone see?"**
+> "What times can I display?"
 
-The parent should only need to think about their own preferred time.
+A scheduling system must answer:
 
-The system handles:
+> "Can this exact appointment safely exist, and which mentor should own it?"
 
-- timezone conversion,
-- mentor working hours,
-- mentor capacity,
-- existing bookings,
-- mentor eligibility,
-- automatic allocation,
-- booking conflicts,
-- idempotent retries, and
-- consistent appointment communication.
-
-### Parent controls
-
-```text
-Date
-Time
-Timezone
-Parent details
-```
-
-### System controls
-
-```text
-Mentor eligibility
-Mentor selection
-Working hours
-Existing bookings
-Daily capacity
-Conflict validation
-Booking persistence
-Class-link generation
-```
-
-This separation is one of the central design decisions of the feature.
-
----
-
-# 2. The Booking Journey
-
-The complete parent-facing flow is:
-
-```text
-┌───────────────────────┐
-│  1. CHOOSE TIME       │
-│                       │
-│  Timezone             │
-│  Date                 │
-│  Available times      │
-│  Preferred time       │
-└───────────┬───────────┘
-            ↓
-┌───────────────────────┐
-│  2. PARENT DETAILS    │
-│                       │
-│  Required information │
-│  Validation           │
-└───────────┬───────────┘
-            ↓
-┌───────────────────────┐
-│  3. CONFIRMATION      │
-│                       │
-│  Appointment details  │
-│  Google Calendar      │
-│  .ics file             │
-│  Copy class link      │
-│  Book another         │
-└───────────────────────┘
-```
-
-The parent never has to select a mentor.
-
----
-
-# 3. Timezone-Aware Scheduling
-
-Timezone handling is a first-class part of the feature.
-
-The system uses **IANA timezone identifiers** rather than treating an offset such as `+05:30` as the timezone itself.
-
-Examples:
-
-```text
-Asia/Kolkata
-Europe/London
-America/New_York
-```
-
-The core temporal model is:
+The system follows this temporal model:
 
 ```text
 Parent local date/time
         +
 Parent IANA timezone
-        ↓
+        |
+        v
 Exact appointment instant
-        ↓
-Mentor IANA timezone
-        ↓
-Mentor local date/time
+        |
+        v
+Mentor-local date/time
 ```
 
-This matters around:
+For example, a parent may select:
 
-- timezone boundaries,
-- midnight crossings,
-- daylight-saving transitions, and
-- different local calendar dates representing the same instant.
+```text
+10:00 AM — Europe/London
+```
 
-The application can detect an apparent timezone and allows the parent to explicitly select a timezone when required. An explicit parent selection takes precedence for the booking session.
+while the assigned mentor sees the same appointment as:
 
-The backend performs the authoritative scheduling calculations.
+```text
+2:30 PM — Asia/Kolkata
+```
+
+These are not two appointments. They are two local representations of the same instant.
+
+The exact instant is therefore the authoritative scheduling identity.
 
 ---
 
-# 4. Availability Is Not Booking
+## 4. Key Differentiators
 
-One of the important architectural boundaries is:
+### 4.1 Parent chooses WHEN, system chooses WHO
 
-> **Availability tells us what appears bookable. Booking decides what can actually be committed.**
+The parent is not asked to understand:
 
-The frontend may request availability and display:
+- mentor availability
+- mentor capacity
+- mentor timezone
+- internal allocation rules
+- UTC offsets
+- database state
 
-```text
-10:00 AM
-Available
-```
-
-Another parent can book that resource before the first parent submits.
-
-Therefore:
+The customer journey remains:
 
 ```text
-Availability response
-        ↓
-Parent selects time
-        ↓
-Booking request
-        ↓
-Backend revalidates
-        ↓
-Allocate mentor
-        ↓
-Persist booking
+Choose date
+   ↓
+Choose time
+   ↓
+Enter details
+   ↓
+Book
 ```
 
-The browser never gets final authority over whether the booking exists.
+The backend handles mentor selection and scheduling constraints.
 
----
+### 4.2 IANA timezone model
 
-# 5. Automatic Mentor Allocation
+Timezone identity is represented using IANA identifiers such as:
 
-The parent chooses a time, not a mentor.
+```text
+Europe/London
+America/New_York
+Asia/Kolkata
+```
 
-For a requested appointment, the backend determines which mentors are eligible based on the scheduling rules.
+Fixed offsets are not used as the domain identity because offsets alone cannot represent daylight-saving rules.
 
-Allocation considers:
+### 4.3 Exact-instant booking model
 
-- mentor working hours,
-- mentor timezone,
-- existing overlapping bookings,
-- mentor-local daily capacity, and
-- the requested appointment instant.
+The scheduling domain distinguishes between:
 
-Among eligible mentors, the implementation uses:
+- recurring/local schedule information
+- user-local appointment representation
+- exact appointment instant
+
+Conceptually:
+
+```text
+Local time + timezone
+        ↓
+Zoned date/time
+        ↓
+Exact instant
+```
+
+This prevents formatted local strings from becoming the source of truth.
+
+### 4.4 DST-aware scheduling
+
+The design explicitly accounts for:
+
+**Nonexistent local times**
+
+A spring-forward transition can remove a range of local times.
+
+**Ambiguous local times**
+
+A fall-back transition can repeat a range of local times.
+
+These cases must be resolved deliberately rather than assuming every local clock value maps to exactly one instant.
+
+### 4.5 Deterministic mentor allocation
+
+Mentor eligibility is based on:
+
+```text
+Within working hours
+AND
+No overlapping booking
+AND
+Daily booking count < 2
+```
+
+When multiple mentors are eligible:
 
 ```text
 Least-booked eligible mentor
+        +
+Deterministic tie-breaker
+```
+
+This avoids random or arbitrary assignment.
+
+### 4.6 Availability is not reservation
+
+A slot returned by the availability API is not a reservation.
+
+The booking endpoint must:
+
+```text
+Validate
+   ↓
+Revalidate
+   ↓
+Allocate
+   ↓
+Commit atomically
+```
+
+This distinction is critical because another user can book a slot after it was displayed.
+
+### 4.7 Idempotent booking
+
+Booking requests can be retried because of:
+
+- network failures
+- browser retries
+- client-side retries
+- proxy retries
+
+An idempotency key is therefore used by the design to prevent the same logical booking request from creating duplicate state.
+
+### 4.8 Graceful conflict recovery
+
+If a selected slot becomes unavailable between availability lookup and booking, the system treats this as a business conflict rather than a generic server failure.
+
+The expected behavior is:
+
+```text
+409 Conflict
+      ↓
+Refresh availability
+      ↓
+Preserve recoverable user input
+      ↓
+Let the parent select another slot
+```
+
+---
+
+## 5. Booking Architecture
+
+```text
+                    ┌──────────────────────┐
+                    │      React UI        │
+                    │ Date / Time / Form   │
+                    └──────────┬───────────┘
+                               │
+                               │ HTTPS
+                               ▼
+                    ┌──────────────────────┐
+                    │   Express API        │
+                    │ Validation / Errors  │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                 ┌──────────────────────────┐
+                 │ Scheduling / Domain Logic│
+                 │                          │
+                 │ • Timezone conversion    │
+                 │ • Availability           │
+                 │ • Capacity               │
+                 │ • Mentor allocation      │
+                 │ • Conflict checks        │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                    ┌──────────────────────┐
+                    │      MongoDB         │
+                    │ Mentors / Bookings   │
+                    │ Indexes / Invariants │
+                    └──────────────────────┘
+```
+
+### Responsibility boundaries
+
+**Frontend**
+
+- collect user intent
+- detect/display timezone
+- request availability
+- display local slots
+- validate form input for UX
+- submit the selected exact instant
+- handle loading, success, conflict and empty states
+
+**Backend**
+
+- authoritative validation
+- timezone normalization
+- availability calculation
+- mentor eligibility
+- capacity enforcement
+- mentor allocation
+- booking transaction
+- idempotency
+- class-link generation
+- notifications
+
+**Database**
+
+- persistent state
+- booking records
+- mentor records
+- indexes
+- consistency boundary
+
+---
+
+## 6. Availability Engine
+
+The availability algorithm follows a single authoritative pipeline:
+
+```text
+Parent date + timezone
         ↓
-Deterministic stable-ID tie-break
+Generate candidate local slots
+        ↓
+Convert each candidate to exact instant
+        ↓
+Convert instant into mentor timezone
+        ↓
+Check mentor working hours
+        ↓
+Check booking overlap
+        ↓
+Check daily capacity
+        ↓
+Keep slot if an eligible mentor exists
+        ↓
+Return parent-local slot representation
 ```
 
-This makes allocation predictable and keeps mentor selection out of the frontend.
+### Slot interval semantics
 
----
-
-# 6. Mentor Capacity
-
-The feature supports **10 production mentors**.
-
-Each mentor can conduct a maximum of:
-
-```text
-2 confirmed trial classes
-per mentor-local calendar day
-```
-
-This is a **daily mentor limit**, not a limit on how many parents can book the same time.
-
-For example, if ten mentors can independently handle:
-
-```text
-10:00 → 10:30
-```
-
-multiple parents can be booked at 10:00, with different mentors, until the eligible mentor pool is exhausted.
-
-This distinction is important:
-
-```text
-Daily capacity
-≠
-Simultaneous slot capacity
-```
-
----
-
-# 7. Exact Intervals
-
-The trial duration is:
-
-```text
-30 minutes
-```
-
-Booking intervals use the half-open convention:
+The system uses half-open intervals:
 
 ```text
 [start, end)
@@ -324,739 +348,841 @@ Booking intervals use the half-open convention:
 Therefore:
 
 ```text
-10:00 → 10:30
-10:30 → 11:00
+09:00 ───── 09:30
+09:30 ───── 10:00
 ```
 
-are adjacent but not overlapping.
-
-This removes ambiguity around exact boundary times and is important for reliable availability calculations.
+are adjacent rather than overlapping.
 
 ---
 
-# 8. Concurrent Booking Safety
+## 7. Mentor Allocation
 
-A scheduling system must assume that availability can change between reading and writing.
+The system does not simply choose the first mentor and then check whether the mentor is usable.
 
-For example:
+Eligibility is calculated first.
 
 ```text
-Parent A                         Parent B
-   │                                │
-   │  sees 10:00 available          │
-   │                                │
-   ├──────────────┐                 │
-   │              │                 │
-   │              │          sees 10:00 available
-   │              │                 │
-   ▼              ▼                 ▼
-              Submit booking requests
+                 Candidate Mentor
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+     Working hours   No overlap   < 2/day
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                Eligible mentor
                        │
                        ▼
-               Backend validation
+             Least-booked mentor
                        │
-                 ┌─────┴─────┐
-                 │           │
-              Success      Conflict
-                 │           │
-                 ▼           ▼
-              Booking      HTTP 409
+                       ▼
+             Deterministic tie-break
 ```
 
-The feature therefore does not assume that the availability response is a reservation.
+This makes allocation predictable and testable.
 
-A conflict is treated as a normal business state and communicated to the parent without exposing raw technical errors.
+### Daily capacity
 
----
+The assignment rule is:
 
-# 9. Idempotent Booking
+> Maximum two demo classes per mentor per local calendar day.
 
-The booking API supports an `Idempotency-Key`.
+This is **not** implemented as a rolling 24-hour window.
 
-This protects against accidental duplicate booking attempts caused by:
-
-- double-clicks,
-- network retries,
-- repeated client requests, and
-- transient request failures.
-
-The objective is simple:
-
-> **Retrying the same logical booking request should not unintentionally create another booking.**
+For the prototype assumptions, the mentor timezone is `Asia/Kolkata`.
 
 ---
 
-# 10. Canonical Class Link
+## 8. Timezone and DST Correctness
 
-The class link belongs to the booking.
+Timezone handling is treated as domain logic.
 
-Once the booking is created, its canonical class URL is reused by the relevant consumers:
+### Parent timezone
+
+The browser timezone can be detected initially using the browser's IANA timezone information.
+
+However:
+
+> **Browser detection is a default, not an absolute source of truth.**
+
+The parent can explicitly select a timezone, and the explicitly selected timezone becomes authoritative.
+
+### Mentor timezone
+
+Each mentor has a configured timezone.
+
+The prototype uses:
 
 ```text
-Booking response
-      ↓
-Parent confirmation
-      ↓
-Copy Link
-      ↓
-Google Calendar
-      ↓
-.ics file
-      ↓
-Mentor dashboard
+Asia/Kolkata
 ```
 
-The frontend does not independently generate a different class URL.
-
-This prevents a subtle but serious consistency problem where the parent and mentor could receive different links for the same booking.
-
----
-
-# 11. Parent Confirmation
-
-The confirmation screen is designed around the question:
-
-> **"What do I need after successfully booking?"**
-
-It provides the confirmed appointment information and practical next actions:
-
-- Add to Google Calendar
-- Download `.ics`
-- Copy class link
-- Book another session
-
-The confirmation UI was refined so important actions remain close to the primary confirmation information rather than being hidden below a long page.
-
----
-
-# 12. Mentor Dashboard
-
-The feature also contains a mentor-facing dashboard.
-
-Its purpose is different from the parent booking experience.
-
-The parent needs to answer:
+### Conversion model
 
 ```text
-When can I book?
+Parent wall-clock intent
+        ↓
+Parent timezone
+        ↓
+Exact instant
+        ↓
+Mentor timezone
+        ↓
+Mentor local appointment time
 ```
 
-The mentor needs to answer:
+### DST cases
 
-```text
-What trials are assigned to me?
-When are they happening?
-How do I access the class?
-```
+The design explicitly considers:
 
-The dashboard provides the relevant scheduled booking information and the canonical class link while keeping mentor allocation as a backend concern.
+- spring-forward gaps
+- fall-back repeated times
+- timezone database changes
+- local-day boundaries
+
+The system should never hardcode a timezone offset as a substitute for timezone rules.
 
 ---
 
-# 13. Architecture
+## 9. Concurrency and Double-Booking Protection
+
+Availability is inherently race-prone.
+
+Example:
 
 ```text
-                           CodeYoung
+User A requests availability ──┐
                                │
+User B requests availability ──┤
+                               ▼
+                         Same slot shown
                                │
-                 Trial-Class Scheduling Feature
-                               │
-          ┌────────────────────┴────────────────────┐
-          │                                         │
-          ▼                                         ▼
-┌─────────────────────┐                  ┌─────────────────────┐
-│  Parent Experience  │                  │  Mentor Dashboard   │
-│                     │                  │                     │
-│  Timezone           │                  │  Scheduled trials   │
-│  Date               │                  │  Booking details    │
-│  Availability       │                  │  Appointment time   │
-│  Preferred time     │                  │  Class link         │
-│  Parent details     │                  │                     │
-│  Confirmation       │                  │                     │
-└──────────┬──────────┘                  └──────────┬──────────┘
-           │                                        │
-           └────────────────┬───────────────────────┘
-                            │
-                            ▼
-                  ┌─────────────────────┐
-                  │   Express REST API  │
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │ Scheduling Domain   │
-                  │                     │
-                  │ Temporal logic      │
-                  │ Availability        │
-                  │ Mentor allocation   │
-                  │ Booking validation  │
-                  │ Idempotency         │
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │       MongoDB       │
-                  │                     │
-                  │ Mentors             │
-                  │ Bookings            │
-                  │ Scheduling state    │
-                  └─────────────────────┘
+                  ┌────────────┴────────────┐
+                  ▼                         ▼
+              User A books              User B books
+                  │                         │
+                  ▼                         ▼
+              Revalidate                 Revalidate
+                  │                         │
+                  ▼                         ▼
+               Success                  Conflict
 ```
+
+The authoritative booking operation must therefore re-check current database state.
+
+The design uses:
+
+- server-side revalidation
+- transactional booking behavior
+- database-level constraints/indexing where applicable
+- deterministic mentor selection
+- conflict status handling
+- idempotency keys
+
+The important invariant is:
+
+> **The UI can suggest availability; only the authoritative booking operation can create a reservation.**
 
 ---
 
-# 14. Technology Stack
+## 10. Idempotency
 
-## Frontend
+A booking request can contain an idempotency key representing the logical operation.
 
-```text
-Next.js
-React
-TypeScript
-Tailwind CSS
-Lucide React
-```
-
-## Backend
+Conceptually:
 
 ```text
-Node.js
-Express
-TypeScript
+POST /api/bookings
+Idempotency-Key: <unique-request-key>
 ```
 
-## Database
+If the same request is retried, the system should recognize it instead of creating duplicate booking state.
 
-```text
-MongoDB
-Mongoose
-```
-
-## Testing
-
-```text
-Vitest
-Frontend/API tests
-Backend domain/API tests
-Integration-oriented scheduling tests
-```
-
-The repository's package manifests are authoritative for the exact installed dependency versions.
+This protects against duplicate submissions caused by unreliable networks or repeated client requests.
 
 ---
 
-# 15. Frontend Architecture
+## 11. API Surface
 
-The frontend follows a clear separation between UI and the backend scheduling domain.
+### Get availability
 
-The API boundary is structured around:
-
-```text
-React Components
-        ↓
-API Client
-        ↓
-API Configuration / Types
-        ↓
-Backend REST API
+```http
+GET /api/availability?date=2026-09-30&timezone=Europe/London
 ```
 
-The frontend is responsible for:
+Conceptual response:
 
-- collecting parent input,
-- displaying availability,
-- handling UI state,
-- submitting booking requests,
-- presenting validation/conflict states, and
-- displaying confirmation information.
+```json
+{
+  "date": "2026-09-30",
+  "timezone": "Europe/London",
+  "slots": [
+    {
+      "instant": "2026-09-30T09:00:00Z",
+      "localTime": "10:00"
+    }
+  ]
+}
+```
 
-The frontend does **not** become a second copy of the scheduling engine.
+### Create booking
 
-It does not decide:
+```http
+POST /api/bookings
+```
 
-- which mentor should be assigned,
-- whether the final booking is valid,
-- whether another booking won the race,
-- or whether mentor daily capacity has been exceeded.
+Conceptual request:
+
+```json
+{
+  "parentName": "John Doe",
+  "parentEmail": "john@example.com",
+  "parentTimezone": "Europe/London",
+  "slotInstant": "2026-09-30T09:00:00Z",
+  "idempotencyKey": "unique-request-key"
+}
+```
+
+The backend then:
+
+1. validates the request
+2. resolves the appointment instant
+3. finds eligible mentors
+4. checks current conflicts
+5. checks daily capacity
+6. assigns a mentor
+7. commits the booking
+8. generates a dummy class link
+9. triggers confirmation/assignment notification behavior
 
 ---
 
-# 16. Backend Architecture
+## 12. Error Model
 
-The backend is responsible for the scheduling domain.
+The API distinguishes validation errors from business conflicts.
 
-Major areas include:
-
-```text
-Temporal utilities
-        ↓
-Mentor domain
-        ↓
-Availability engine
-        ↓
-Mentor allocation
-        ↓
-Booking service
-        ↓
-REST API
-        ↓
-MongoDB
-```
-
-This separation allows the availability logic, allocation logic, and booking logic to remain independently testable.
-
----
-
-# 17. Important Domain Boundaries
-
-The implementation deliberately separates concepts that are easy to accidentally combine.
-
-### Availability vs Allocation
-
-```text
-Availability:
-Can someone serve this appointment?
-
-Allocation:
-Which eligible mentor should receive it?
-```
-
-### Booking vs Notification
-
-```text
-Booking:
-State correctness
-
-Notification:
-Communication
-```
-
-A communication failure should not turn an already-created booking into a fake booking failure.
-
-### Local Time vs Exact Instant
-
-```text
-Local time:
-What the user means
-
-Exact instant:
-What the system books
-```
-
-### UI Availability vs Authoritative Booking
-
-```text
-UI:
-What was available when we checked
-
-Backend:
-What can actually be committed now
-```
-
-These boundaries are central to the architecture.
-
----
-
-# 18. User Experience
-
-The frontend was designed as a real scheduling experience rather than a generic CRUD interface.
-
-The design system emphasizes:
-
-- clear hierarchy,
-- restrained visual language,
-- purposeful spacing,
-- readable typography,
-- accessible controls,
-- responsive behavior,
-- clear loading states,
-- clear conflict states,
-- clear confirmation,
-- purposeful animation, and
-- reduced-motion support.
-
-The design principle is:
-
-> **Hide system complexity from the parent without hiding useful information.**
-
-The interface does not expose unnecessary internal details such as mentor allocation decisions or internal capacity calculations.
-
----
-
-# 19. Error Handling
-
-The feature treats errors as part of the product experience.
-
-### No availability
-
-The parent is told that the requested time cannot currently be served and is guided toward another time.
-
-### Booking conflict
-
-The backend returns `409 Conflict` when the requested booking can no longer be created because the relevant availability changed.
-
-### Validation
-
-Invalid or incomplete parent details are presented clearly.
-
-### Loading
-
-Availability and booking operations communicate their processing state.
-
-### Unexpected failure
-
-Technical failures are presented through user-oriented error states rather than raw stack traces or internal implementation messages.
-
----
-
-# 20. Testing and Verification
-
-The backend QA record for the implemented system reports:
-
-```text
-137 / 137 tests passing
-```
-
-The reported test coverage was approximately:
-
-```text
-99.5% overall
-```
-
-The test suite covers the scheduling domain and important edge cases, including:
-
-- timezone conversion,
-- IANA timezone handling,
-- daylight-saving behavior,
-- mentor working hours,
-- availability,
-- mentor allocation,
-- daily capacity,
-- overlapping bookings,
-- adjacent bookings,
-- simultaneous bookings across multiple mentors,
-- deterministic allocation,
-- idempotency,
-- concurrent requests,
-- validation,
-- HTTP 409 conflicts,
-- booking persistence, and
-- API behavior.
-
-The project also includes frontend/API integration tests.
-
-### Important note
-
-These figures come from the project's QA/development record. Before a final submission or deployment, the current repository should be tested again from the current code state rather than treating an older report as a permanent guarantee.
-
----
-
-# 21. Production Mentor Data
-
-The current implementation contains:
-
-```text
-10 production mentors
-```
-
-The mentors are persisted in MongoDB and participate in the allocation system.
-
-The parent does not select from the mentor list.
-
-Mentor data is an internal scheduling resource used by the backend and mentor-facing dashboard.
-
----
-
-# 22. What the System Does End-to-End
-
-A successful booking looks like this:
-
-```text
-1. Parent opens the scheduling feature
-              ↓
-2. Timezone is detected / selected
-              ↓
-3. Parent selects a date
-              ↓
-4. Backend provides availability
-              ↓
-5. Parent selects a preferred time
-              ↓
-6. Parent enters required details
-              ↓
-7. Frontend submits booking request
-              ↓
-8. Backend validates the request
-              ↓
-9. Requested local time becomes an exact instant
-              ↓
-10. Eligible mentors are determined
-              ↓
-11. Mentor is allocated automatically
-              ↓
-12. Booking is persisted
-              ↓
-13. Canonical class URL is associated with booking
-              ↓
-14. Confirmation is returned
-              ↓
-15. Parent can use calendar / class-link actions
-              ↓
-16. Mentor can view the scheduled trial
-```
-
----
-
-# 23. Repository Structure
-
-A simplified repository structure is:
-
-```text
-project-root/
-│
-├── frontend/
-│   ├── app/
-│   ├── components/
-│   ├── lib/
-│   ├── types/
-│   └── ...
-│
-├── backend/
-│   ├── src/
-│   ├── tests/
-│   └── ...
-│
-├── README.md
-├── SETUP.md
-├── prompt.md
-├── TRANSCRIPT.md
-├── project-research.md
-├── coding-skill.md
-├── design-skill.md
-└── ...
-```
-
-The exact source tree in the repository is authoritative.
-
----
-
-# 24. Documentation Included
-
-### `README.md`
-
-High-level project and engineering overview for evaluators and developers.
-
-### `SETUP.md`
-
-Practical instructions for cloning, installing dependencies, configuring the environment, starting required services, running the application, seeding data, and executing tests.
-
-### `project-research.md`
-
-Detailed scheduling research and architecture reasoning.
-
-### `coding-skill.md`
-
-Engineering standards and implementation principles used during development.
-
-### `design-skill.md`
-
-The frontend UI/UX and design-engineering system used for the feature.
-
-### `prompt.md`
-
-Meaningful AI-assisted development prompts used throughout the implementation.
-
-### `TRANSCRIPT.md`
-
-The AI-assisted development record required as part of the assignment context.
-
-The supporting documents provide deeper implementation context without making this README read like a research paper.
-
----
-
-# 25. Assumptions and Scope
-
-Some scheduling rules were not explicitly defined by the assignment and therefore became implementation assumptions.
-
-The implemented baseline uses:
-
-| Rule | Implementation |
+| Status | Meaning |
 |---|---|
-| Trial duration | 30 minutes |
-| Scheduling interval | 30 minutes |
-| Mentor daily limit | 2 confirmed trials |
-| Mentor capacity day | Mentor-local calendar day |
-| Mentor allocation | Least-booked eligible mentor |
-| Tie-break | Stable deterministic mentor identifier |
-| Parent timezone | Automatic detection + explicit selection |
-| Class URL | Dummy/canonical booking URL |
-| Database | MongoDB |
-| Backend | Express |
-| Frontend | Next.js |
+| `400` | Invalid request |
+| `422` | Semantically invalid input |
+| `409` | Slot/resource conflict |
+| `429` | Rate limit exceeded |
+| `500` | Unexpected server failure |
 
-These assumptions are documented so that an evaluator can distinguish assignment requirements from implementation decisions.
+### Important distinction
 
----
+"No mentors are available" is a normal scheduling business state.
 
-# 26. What Is Deliberately Not Being Claimed
+It should not be presented to the parent as:
 
-This repository is a focused scheduling feature, not a claim to reproduce the complete infrastructure of a commercial scheduling platform.
+```text
+500 Internal Server Error
+```
 
-The feature does not attempt to introduce unnecessary:
-
-- microservices,
-- distributed infrastructure,
-- production video-conferencing infrastructure,
-- enterprise calendar synchronization,
-- complex mentor leave management,
-- or unrelated CodeYoung platform functionality.
-
-The goal is to implement the required scheduling problem correctly and demonstrate sound engineering decisions around the difficult parts.
+Likewise, a slot that was booked moments earlier should be represented as a conflict and handled by refreshing availability.
 
 ---
 
-# 27. Engineering Decisions Worth Reviewing
+## 13. Data Model
 
-If you are reviewing this repository from an engineering perspective, the most important areas to inspect are:
+The design centers on two primary domain entities:
 
-### Temporal correctness
+### Mentor
 
-Look at how local date/time and IANA timezone information become an exact appointment instant.
+Typical responsibilities/data include:
 
-### Availability
-
-Look at how mentor eligibility and existing bookings are evaluated.
-
-### Allocation
-
-Look at how the system chooses an eligible mentor without exposing that decision to the parent.
+- mentor identity
+- timezone
+- working schedule
+- active/inactive state
+- booking relationships
 
 ### Booking
 
-Look at how the backend revalidates availability before persistence.
-
-### Conflict handling
-
-Look at how races become `409 Conflict` rather than invalid bookings or generic server errors.
-
-### Idempotency
-
-Look at how repeated booking requests are prevented from creating duplicates.
-
-### Class URL consistency
-
-Look at how one booking produces one canonical class URL used by parent and mentor surfaces.
-
-### Testing
-
-Look at the timezone, capacity, overlap, allocation, idempotency, and concurrency tests.
-
-These are the areas where the scheduling feature moves beyond a basic form-plus-database implementation.
-
----
-
-# 28. Prototype
-
-The original product prototype is available as an additional visual reference:
-
-**Prototype:**  
-https://drive.google.com/file/d/1gv5-xCCyO4xnB1QaqRDJS8fqktmNCdE8/view?usp=drivesdk
-
-The prototype is supplementary.
-
-The source code is the authoritative representation of the implemented feature.
-
----
-
-# 29. Setup
-
-Start with:
-
-**[`SETUP.md`](SETUP.md)**
-
-The setup guide contains the practical instructions required to run the repository.
-
-Before submitting the project, the setup procedure should be verified from a clean environment so an evaluator can reproduce the application without relying on the developer's local machine.
-
----
-
-# 30. A Short Technical Summary
-
-If you only have one minute to understand the project:
+A booking contains information such as:
 
 ```text
-CodeYoung
-   │
-   └── Trial-Class Scheduling Feature
-           │
-           ├── Parent chooses local date/time
-           │
-           ├── IANA timezone-aware scheduling
-           │
-           ├── Backend calculates availability
-           │
-           ├── System automatically selects mentor
-           │
-           ├── 2-trial daily mentor limit
-           │
-           ├── 30-minute half-open intervals
-           │
-           ├── Backend revalidates before booking
-           │
-           ├── 409 conflict handling
-           │
-           ├── Idempotent booking requests
-           │
-           ├── MongoDB persistence
-           │
-           ├── Canonical class URL
-           │
-           ├── Parent confirmation + calendar actions
-           │
-           ├── Mentor dashboard
-           │
-           └── Comprehensive scheduling tests
+mentorId
+parentName
+parentEmail
+startTime
+endTime
+parentTimezone
+status
+idempotencyKey
+createdAt
+updatedAt
+```
+
+The booking model should support indexes for mentor/time-based lookup and idempotency.
+
+Conceptual MongoDB index:
+
+```text
+mentorId + startTime + endTime
+```
+
+This supports efficient conflict-oriented queries.
+
+---
+
+## 14. Frontend Experience
+
+The intended customer journey is deliberately minimal:
+
+```text
+Timezone
+   ↓
+Date
+   ↓
+Available local times
+   ↓
+Parent details
+   ↓
+Confirmation
+```
+
+### UI states
+
+The interface explicitly accounts for:
+
+**Initial**
+
+```text
+Loading booking options...
+```
+
+**Availability loading**
+
+```text
+Finding available trial times...
+```
+
+**Available**
+
+```text
+09:00 AM
+09:30 AM
+10:00 AM
+```
+
+**No availability**
+
+```text
+No trial slots available for this date.
+Try another date.
+```
+
+**Booking**
+
+```text
+Confirming your trial class...
+```
+
+**Success**
+
+```text
+Trial class confirmed.
+```
+
+**Conflict**
+
+```text
+That slot was just booked.
+Available times have been refreshed.
+```
+
+**Validation**
+
+```text
+Please enter a valid email address.
+```
+
+**Unexpected failure**
+
+```text
+We couldn't complete the booking right now.
+Please try again.
+```
+
+### UX principles
+
+The design intentionally avoids:
+
+- mentor selection
+- UTC exposure
+- unnecessary configuration
+- dashboard-heavy layouts
+- decorative UI without purpose
+- technical backend errors
+- false success states
+
+The parent should understand the scheduling task immediately.
+
+---
+
+## 15. Notifications and Class Link
+
+The prototype architecture separates notification behavior behind an email-service abstraction.
+
+A mock email service can demonstrate:
+
+### Parent confirmation
+
+```text
+Subject:
+Your Codeyoung Trial Class is Confirmed
+
+Date:
+September 30, 2026
+
+Time:
+10:00 AM
+Europe/London
+
+Class:
+https://example.com/class/<booking-id>
+```
+
+### Mentor assignment
+
+```text
+Subject:
+New Trial Class Assigned
+
+Date:
+September 30, 2026
+
+Time:
+2:30 PM
+Asia/Kolkata
+
+Parent:
+John Doe
+
+Parent Email:
+john@example.com
+
+Class:
+https://example.com/class/<booking-id>
+```
+
+No external video provider is required for the prototype.
+
+---
+
+## 16. Technology Stack
+
+The engineering specifications define the following implementation direction:
+
+| Layer | Technology |
+|---|---|
+| Frontend | React |
+| Backend | Node.js |
+| API | Express.js |
+| Language | TypeScript |
+| Database | MongoDB |
+| ODM | Mongoose |
+| Validation | Zod |
+| Scheduling | IANA timezone model / Temporal-oriented approach |
+| Testing | Vitest/Jest-oriented test strategy |
+| Architecture | MERN-style full-stack application |
+
+The implementation should keep domain logic independent from presentation concerns wherever practical.
+
+---
+
+## 17. Engineering Principles
+
+### Single source of truth for scheduling logic
+
+Availability logic should not be duplicated across React, routes, repositories and notification code.
+
+### Thin route handlers
+
+Routes should primarily:
+
+```text
+validate input
+→ call domain/service logic
+→ map result to HTTP response
+```
+
+### Server is authoritative
+
+Client-side validation improves UX.
+
+It does not establish booking correctness.
+
+### Deterministic behavior
+
+Given the same scheduling state and inputs, allocation should behave predictably.
+
+### Explicit business rules
+
+Important rules should be visible in domain logic rather than hidden inside UI conditions.
+
+### Test invariants, not implementation details
+
+Tests should prove rules such as:
+
+```text
+A mentor cannot exceed 2 bookings/day.
+An overlapping booking is rejected.
+Adjacent slots do not overlap.
+The selected timezone overrides browser timezone.
+A lower-load eligible mentor is preferred.
+A concurrent booking produces a conflict.
+The same idempotency key does not create duplicate state.
 ```
 
 ---
 
-# 31. Final Perspective
+## 18. Security and Privacy
 
-The feature intentionally keeps the user-facing experience simple while putting the complexity where it belongs: inside the scheduling domain.
+The booking endpoint is public-facing, so input validation and abuse protection are relevant.
 
-The core idea is:
+The design calls for:
+
+- server-side schema validation
+- controlled error responses
+- rate limiting for public booking requests
+- no secret exposure
+- controlled logging
+- minimal personal data collection
+
+The core parent data is limited to what the booking flow needs:
 
 ```text
-                SIMPLE FOR THE PARENT
-                         │
-                         ▼
-              "I want this time."
-                         │
-                         ▼
-              ┌─────────────────┐
-              │ Scheduling      │
-              │ Domain          │
-              │                 │
-              │ Timezones       │
-              │ Availability    │
-              │ Capacity        │
-              │ Allocation      │
-              │ Conflicts       │
-              │ Idempotency     │
-              └────────┬────────┘
+Parent name
+Parent email
+Timezone
+Booking information
+```
+
+Technical logs should avoid unnecessary PII.
+
+---
+
+## 19. Testing Strategy
+
+The critical test matrix includes:
+
+| Area | Cases |
+|---|---|
+| Timezone | London, New York, Kolkata |
+| DST | Spring-forward, fall-back |
+| Availability | Available, unavailable |
+| Capacity | 0, 1, 2 bookings |
+| Allocation | Unequal loads, ties |
+| Conflict | Overlapping, adjacent |
+| Concurrency | Simultaneous booking attempts |
+| Retry | Same idempotency key |
+| Validation | Invalid inputs |
+| API | Success, conflict, validation, rate-limit and server-error paths |
+| Notifications | Parent-local and mentor-local time |
+
+Example test names should describe the business rule:
+
+```text
+does not expose a slot when all mentors reached daily capacity
+
+assigns a lower-load mentor when multiple mentors are eligible
+
+uses the explicitly selected timezone over the browser timezone
+
+returns 409 when the selected slot is booked concurrently
+```
+
+---
+
+## 20. Production-Oriented Engineering Loop
+
+The engineering approach for this project follows:
+
+```text
+Understand
+   ↓
+Model
+   ↓
+Challenge assumptions
+   ↓
+Design
+   ↓
+Implement
+   ↓
+Test
+   ↓
+Review
+   ↓
+Simplify
+```
+
+The goal is not maximum code volume.
+
+The goal is:
+
+- correctness
+- clarity
+- maintainability
+- observability
+- security
+- testability
+- appropriate simplicity
+
+---
+
+## 21. Prototype Assumptions
+
+Some values are implementation assumptions rather than confirmed business policy.
+
+| Item | Prototype assumption |
+|---|---|
+| Database | MongoDB + Mongoose |
+| Backend | Express.js + Node.js |
+| Trial duration | 30 minutes |
+| Slot interval | 30 minutes |
+| Mentor timezone | Asia/Kolkata |
+| Mentor working hours | 09:00–18:00 IST |
+| Daily capacity | 2 demos/mentor/day |
+| Parent timezone | Browser detection + manual override |
+| Allocation | Least-booked eligible mentor |
+| Tie-breaking | Stable deterministic ordering |
+| Email | Mock/console notification |
+| Class provider | Dummy URL |
+| Authentication | Not required for prototype |
+| Calendar integration | Not required |
+| Admin dashboard | Not required |
+
+These assumptions should not be interpreted as permanent Codeyoung product policy.
+
+---
+
+## 22. Scope Boundaries
+
+The prototype intentionally focuses on the core scheduling problem.
+
+### Included
+
+- Parent booking flow
+- Timezone-aware availability
+- DST-aware scheduling model
+- Mentor availability
+- Mentor capacity
+- Automatic mentor assignment
+- Booking conflict protection
+- Idempotent booking design
+- Dummy class link
+- Confirmation/notification abstraction
+- Validation and error handling
+
+### Outside prototype scope
+
+- Real payment processing
+- Real Zoom/Google Meet integration
+- Full authentication/authorization system
+- Calendar provider synchronization
+- Admin scheduling dashboard
+- Complex holiday/leave management
+- Mentor self-service schedule management
+- Production email provider credentials
+
+Keeping these boundaries explicit prevents unnecessary complexity from entering the assignment implementation.
+
+---
+
+## 23. Future Extensions
+
+The architecture can be extended with:
+
+- Google Calendar/Microsoft Calendar integration
+- Real email provider
+- Real video-meeting provider
+- Mentor-specific schedules
+- Holidays and exceptions
+- Mentor leave/overrides
+- Authentication and role-based access
+- Admin dashboard
+- Booking cancellation/rescheduling
+- Audit history
+- Analytics
+- Notification retry queues
+- Distributed locking/stronger reservation infrastructure for higher scale
+
+These are extensions rather than requirements for the core prototype.
+
+---
+
+## 24. Engineering Trade-offs
+
+### MongoDB
+
+MongoDB fits the prototype's document-oriented data model and the JavaScript/TypeScript ecosystem.
+
+The application still needs explicit application-level conflict logic and appropriate indexes because MongoDB does not automatically turn a basic document model into a complete scheduling constraint system.
+
+### Mock notifications
+
+A mock email service keeps local evaluation deterministic and avoids requiring third-party API credentials.
+
+The abstraction allows a real provider to be added later.
+
+### Automatic allocation
+
+Automatic mentor assignment reduces customer decision-making and centralizes fairness/capacity logic in the backend.
+
+### Dynamic availability
+
+Availability is calculated from current scheduling state rather than treating a pre-generated static slot list as authoritative.
+
+---
+
+## 25. Definition of Done
+
+The system should be considered complete only when:
+
+- the complete parent booking journey works
+- parent-local time is clear
+- timezone selection is understandable
+- available slots are easy to scan
+- selected state is obvious
+- contact validation works
+- booking success is shown only after server confirmation
+- no-availability is handled gracefully
+- conflict recovery refreshes availability
+- mentor allocation follows the documented rule
+- daily capacity is enforced
+- overlapping bookings are prevented
+- timezone conversions are correct
+- DST cases are covered by tests
+- retry/idempotency behavior is handled
+- sensitive information is not exposed in logs
+- the application can be tested deterministically
+
+---
+
+## 26. Project Documentation
+
+The project was designed from dedicated engineering and product research covering:
+
+- scheduling architecture
+- timezone and DST behavior
+- availability algorithms
+- mentor allocation
+- concurrency
+- idempotency
+- API contracts
+- data modeling
+- UX states
+- testing strategy
+- security/privacy considerations
+- production engineering standards
+
+The repository's implementation should remain aligned with those documented decisions, and any deliberate deviation should be documented with its reason.
+
+---
+
+## 27. Quick Evaluation Checklist
+
+An evaluator can inspect the project through these questions:
+
+### Product
+
+- Can a parent book without choosing a mentor?
+- Does the parent see local time?
+- Is the timezone visible and controllable?
+- Is no-availability handled cleanly?
+
+### Scheduling
+
+- Is the selected local time converted to an exact instant?
+- Is the mentor's timezone respected?
+- Are DST edge cases considered?
+- Is the daily capacity based on the correct local day?
+
+### Backend
+
+- Is availability calculated on the server?
+- Is booking revalidated?
+- Is mentor allocation deterministic?
+- Are validation and errors structured?
+
+### Reliability
+
+- Can two users safely compete for the same slot?
+- Can a network retry create a duplicate booking?
+- Does a stale slot return a conflict rather than false success?
+
+### Engineering
+
+- Is the scheduling logic centralized?
+- Are domain rules testable?
+- Are responsibilities separated?
+- Are assumptions documented?
+- Is unnecessary complexity avoided?
+
+---
+
+## 28. Submission Prototype
+
+The complete visual/functional prototype is available here:
+
+**[Open Project Prototype](https://drive.google.com/file/d/1gv5-xCCyO4xnB1QaqRDJS8fqktmNCdE8/view?usp=drivesdk)**
+
+---
+
+## 29. Final Architecture Summary
+
+```text
+                    PARENT
+                      │
+                      │ local date/time
+                      ▼
+             ┌─────────────────┐
+             │  React Client   │
+             └────────┬────────┘
+                      │
+                      │ availability
+                      ▼
+             ┌─────────────────┐
+             │  Express API    │
+             └────────┬────────┘
+                      │
+                      ▼
+          ┌─────────────────────────┐
+          │ Scheduling Domain       │
+          │                         │
+          │ Timezone → Instant      │
+          │ Availability            │
+          │ Capacity                │
+          │ Allocation              │
+          │ Revalidation            │
+          │ Idempotency             │
+          └────────────┬────────────┘
                        │
                        ▼
-              CORRECT BOOKING
+              ┌────────────────┐
+              │    MongoDB     │
+              │                │
+              │ Mentors        │
+              │ Bookings       │
+              │ Indexes        │
+              └────────────────┘
+                       │
+                       ▼
+              ┌────────────────┐
+              │ Confirmation   │
+              │ + Class Link   │
+              └────────────────┘
 ```
 
-That is the main engineering objective of this feature:
+### Core invariant
 
-> **Make global scheduling complexity invisible to the parent while keeping the underlying system deterministic, testable, timezone-aware, and safe against conflicting bookings.**
+> **Parent chooses WHEN → system determines WHO → database determines WHETHER the booking can safely exist.**
 
 ---
 
-## Built for CodeYoung
+## License
 
-**CodeYoung** is the company/product context for this work.
-
-**This repository implements the trial-class scheduling feature within that context.**
+This project was created as part of the Codeyoung full-stack engineering assignment/prototype. Add the repository's intended license here if one is required for submission.
