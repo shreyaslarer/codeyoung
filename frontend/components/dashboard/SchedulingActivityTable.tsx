@@ -297,6 +297,7 @@ export function SchedulingActivityTable({
                   },
                   slotIst: inspectBooking.slotIst,
                   status: inspectBooking.status,
+                  classUrl: inspectBooking.classUrl,
                   verifiedAt: new Date().toISOString(),
                 },
                 null,

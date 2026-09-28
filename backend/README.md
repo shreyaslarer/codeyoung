@@ -6,7 +6,7 @@ Production-grade Node.js / Express / TypeScript backend service for scheduling a
 
 ## Architecture Overview
 
-The backend is built with strict separation of concerns following clean architecture principles:
+The backend follows a layered architecture with separation of concerns:
 
 ```
 backend/
@@ -32,16 +32,16 @@ backend/
 │   ├── utils/
 │   │   └── temporal.utils.ts      # Pure timezone utilities via @js-temporal/polyfill
 │   └── server.ts                  # Express application entry point & graceful shutdown
-├── tests/                         # Vitest automated test suite (147 tests)
+├── tests/                         # Vitest automated test suite (158 tests across 8 suites)
 │   ├── setup.ts                   # Database connection setup and teardown for tests
 │   ├── api.test.ts                # REST API endpoint integration tests
 │   ├── availability.test.ts       # Availability engine tests across timezones
 │   ├── booking.test.ts            # Booking creation, idempotency, and concurrency tests
 │   ├── mentor-allocation.test.ts  # Mentor allocation and load-balancing tests
 │   ├── mentor.test.ts             # Mentor service and repository tests
+│   ├── preferred-time.test.ts     # Preferred start time evaluation & booking regression tests
 │   ├── slot-capacity.test.ts      # Multi-mentor concurrent slot capacity tests
 │   └── temporal.utils.test.ts     # Temporal utility pure function unit tests
-├── kill-port-3001.ps1             # Developer utility to kill rogue processes on port 3001
 ├── package.json                   # Project metadata and npm scripts
 ├── tsconfig.json                  # TypeScript compiler configuration (ES2022 / ESNext)
 ├── vitest.config.ts               # Test runner configuration
@@ -77,23 +77,47 @@ backend/
    - Every booking request requires a client-generated `Idempotency-Key` header.
    - Duplicate submissions with the same key safely return the original booking without re-allocating or creating duplicate records.
 
+7. **Preferred Start Time Support**:
+   - Parents can request an arbitrary start time (e.g., `10:15`) via query parameter `preferredStartTime=HH:MM` on `/api/availability` and book it.
+   - The engine validates working hours and capacity for the requested interval and confirms slot availability.
+
 ---
 
 ## API Reference
 
 ### Health Check
 - `GET /health`
-  - Returns `200 OK` with status and timestamp.
+  - Returns `200 OK` with status and timestamp:
+    ```json
+    { "status": "ok", "timestamp": "2026-09-28T05:30:00.000Z" }
+    ```
 
 ### Mentors
 - `GET /api/mentors`
-  - Returns all active mentors with public profile fields.
+  - Returns all active mentors with public profile fields (`_id`, `name`, `timezone`, `workingHours`, `totalBookingsCount`).
 - `GET /api/mentors/:id`
-  - Returns details for a specific mentor.
+  - Returns details for a specific mentor or `404 Not Found` with RFC 7807 problem details.
 
 ### Scheduling & Availability
 - `GET /api/availability?parentDate=YYYY-MM-DD&parentTimezone=Zone&trialDurationMinutes=30&preferredStartTime=HH:MM`
-  - Returns available 30-minute slots projected in the parent's timezone, with eligible mentor IDs and optional preferred slot evaluation.
+  - Returns available 30-minute slots projected in the parent's timezone, with eligible mentor IDs and optional preferred slot evaluation:
+    ```json
+    {
+      "parentDate": "2026-09-29",
+      "parentTimezone": "Europe/London",
+      "trialDurationMinutes": 30,
+      "slots": [
+        {
+          "startInstant": "2026-09-29T04:30:00.000Z",
+          "endInstant": "2026-09-29T05:00:00.000Z",
+          "parentLocalDate": "2026-09-29",
+          "parentLocalTime": "05:30",
+          "eligibleMentorIds": ["64a..."]
+        }
+      ],
+      "preferredSlot": null
+    }
+    ```
 - `POST /api/bookings`
   - Header: `Idempotency-Key: <unique-uuid>`
   - Body:
@@ -101,7 +125,7 @@ backend/
     {
       "parentName": "John Doe",
       "parentEmail": "john.doe@example.com",
-      "parentLocalDate": "2026-09-30",
+      "parentLocalDate": "2026-09-29",
       "parentLocalTime": "10:00",
       "parentTimezone": "Europe/London",
       "trialDurationMinutes": 30
@@ -119,10 +143,10 @@ backend/
 
 The application connects to MongoDB using Mongoose.
 
-- **Development / Standalone Mode**:
+- **Standalone Mode (Development)**:
   - Operates on standalone MongoDB (`mongodb://localhost:27017/codeyoung_trial_booking`).
-  - Safe checks and unique index on `idempotencyKey` protect against duplicate creation.
-- **Production / Replica Set Mode**:
+  - Pre-flight checks and unique index constraints on `idempotencyKey` prevent duplicate creation.
+- **Replica Set Mode (Production)**:
   - When connected to a replica set (e.g., MongoDB Atlas or a clustered deployment), the system automatically detects replica set support and wraps booking creation inside an ACID multi-document transaction (`session.startTransaction()`), providing strict serializability.
 
 ---
@@ -171,7 +195,7 @@ npm start
 ```
 
 ### Running Tests
-Execute the Vitest test suite:
+Execute the Vitest test suite (8 test suites, 158 tests):
 ```bash
 npm test
 ```

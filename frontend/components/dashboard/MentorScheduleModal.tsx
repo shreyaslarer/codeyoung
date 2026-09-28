@@ -255,9 +255,7 @@ export function MentorScheduleModal({
             </div>
           ) : (
             scheduledBookings.map((b, idx) => {
-              const meetingUrl =
-                b.classUrl ||
-                `https://meet.codeyoung.com/trial/room-cy-${b.id.replace(/[^0-9]/g, "") || "1024"}`;
+              const meetingUrl = b.classUrl;
               const isCopied = copiedId === b.id;
 
               return (

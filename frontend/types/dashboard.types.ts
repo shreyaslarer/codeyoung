@@ -20,7 +20,7 @@ export interface BookingActivityItem {
   readonly mentor: MentorBadgeInfo;
   readonly slotIst: string;
   readonly status: 'Confirmed' | 'Pending' | 'Completed' | 'Cancelled';
-  readonly classUrl?: string;
+  readonly classUrl: string;
 }
 
 export interface MetricCardData {

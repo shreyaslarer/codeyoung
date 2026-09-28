@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import { bookingService, CreateBookingRequest } from '../src/services/booking.service';
+import { bookingRepository } from '../src/models/booking.repository.js';
 import { connectToDatabase, disconnectFromDatabase } from '../src/db/connection';
 
 describe('Booking Creation Service', () => {
@@ -502,4 +503,44 @@ describe('Booking Creation Service', () => {
       }
     });
   });
+
+  describe('Class Link Canonical Consistency & Retrieval', () => {
+    it('should generate exactly one canonical class URL and persist it identically across database retrieval methods', async () => {
+      const request = createBookingRequest({ parentLocalTime: '10:00' });
+      const result = await bookingService.createBooking(request);
+
+      expect(result.success).toBe(true);
+      expect(result.booking).toBeDefined();
+
+      const canonicalUrl = result.booking!.classUrl;
+      expect(canonicalUrl).toMatch(/^https:\/\/meet\.codeyoung\.dev\/[A-Za-z0-9_-]+$/);
+
+      // Verify exact URL in direct repository lookup by ID
+      const directRecord = await bookingRepository.findById(result.booking!.id);
+      expect(directRecord).not.toBeNull();
+      expect(directRecord!.classUrl).toBe(canonicalUrl);
+
+      // Verify exact URL in findByIdempotencyKey
+      const idempRecord = await bookingRepository.findByIdempotencyKey(request.idempotencyKey);
+      expect(idempRecord).not.toBeNull();
+      expect(idempRecord!.classUrl).toBe(canonicalUrl);
+
+      // Verify exact URL in findRecentBookings
+      const recentBookings = await bookingRepository.findRecentBookings(10);
+      const matchInRecent = recentBookings.find(b => b._id.toString() === result.booking!.id);
+      expect(matchInRecent).toBeDefined();
+      expect(matchInRecent!.classUrl).toBe(canonicalUrl);
+
+      // Verify exact URL in findAllBookings (used by /api/dashboard/stats)
+      const allBookings = await bookingRepository.findAllBookings();
+      const matchInAll = allBookings.find(b => b._id.toString() === result.booking!.id);
+      expect(matchInAll).toBeDefined();
+      expect(matchInAll!.classUrl).toBe(canonicalUrl);
+
+      // Ensure URL is not truncated or transformed
+      expect(canonicalUrl).not.toContain('room-cy-');
+      expect(canonicalUrl.length).toBeGreaterThan(30);
+    });
+  });
 });
+
